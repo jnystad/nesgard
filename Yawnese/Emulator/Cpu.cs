@@ -68,6 +68,11 @@ namespace Yawnese.Emulator
             traceFile = new StreamWriter(File.OpenWrite("cpu_trace.log"));
         }
 
+        public void Dispose()
+        {
+            traceFile.Close();
+        }
+
         public void Reset(bool testMode)
         {
             registers.Reset();

@@ -325,7 +325,6 @@ namespace Yawnese.Emulator
             var addr = address.address;
             address.Increment();
 
-            //Console.WriteLine("{0:X4} = {1:X2}", addr, data);
             switch (addr)
             {
                 case ushort a when (a <= 0x1FFF):

@@ -67,8 +67,6 @@ namespace Yawnese
                         {
                             if (gamepad.Update())
                             {
-                                Console.WriteLine("Gamepad state {0}", gamepad.ButtonsState);
-
                                 cpu.bus.controller1.Update(ControllerButton.BUTTON_A, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.A));
                                 cpu.bus.controller1.Update(ControllerButton.BUTTON_B, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.X));
                                 cpu.bus.controller1.Update(ControllerButton.START, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.Start));
@@ -105,10 +103,31 @@ namespace Yawnese
             Controls.Add(menu);
 
             Focus();
+            BringToFront();
         }
 
         protected void LoadRom(object sender, EventArgs e)
         {
+            if (debugger != null)
+            {
+                debugger.Dispose();
+                debugger = null;
+            }
+
+            if (cpuTask != null)
+            {
+                exitCpu = true;
+                cpuTask.Wait();
+                cpuTask = null;
+                exitCpu = false;
+            }
+
+            if (cpu != null)
+            {
+                cpu.Dispose();
+                cpu = null;
+            }
+
             string file;
             using (var dialog = new OpenFileDialog())
             {
@@ -121,18 +140,16 @@ namespace Yawnese
                 file = dialog.FileName;
             }
 
-            var rom = new Cartridge(file);
-            cpu = new Cpu(rom);
-            cpu.Reset(false);
-
-            if (debugger != null)
-                debugger.Dispose();
-
-            if (cpuTask != null)
+            try
             {
-                exitCpu = true;
-                cpuTask.Wait();
-                exitCpu = false;
+                var rom = new Cartridge(file);
+                cpu = new Cpu(rom);
+                cpu.Reset(false);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Could not load NES rom", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
             }
 
             if (showDebugger)

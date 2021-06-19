@@ -38,7 +38,6 @@ namespace Yawnese.Emulator
 
         public void Update(ControllerButton button, bool pressed)
         {
-            Console.WriteLine("Button {0} pressed: {1}", button, pressed);
             if (pressed)
             {
                 status |= button;
