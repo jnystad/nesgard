@@ -1,13 +1,9 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -22,13 +18,19 @@ namespace Yawnese
 
         Task cpuTask;
 
-        PictureBox image = new PictureBox();
+        bool exitCpu = false;
+
+        PictureBoxInterpolation image = new PictureBoxInterpolation();
 
         Bitmap bitmap;
 
         Debugger debugger;
 
+        bool showDebugger;
+
         bool pause;
+
+        bool isActive;
 
         X.Gamepad gamepad;
 
@@ -38,57 +40,15 @@ namespace Yawnese
         {
             InitializeComponent();
 
+            Activated += new EventHandler(HandleActivate);
+            Deactivate += new EventHandler(HandleDeactivate);
+
             bitmap = new Bitmap(256, 240, PixelFormat.Format24bppRgb);
+
+            image.InterpolationMode = InterpolationMode.NearestNeighbor;
             image.Dock = DockStyle.Fill;
             image.SizeMode = PictureBoxSizeMode.Zoom;
             Controls.Add(image);
-
-            var rom = new Cartridge("roms/super_mario_bros.nes");
-            cpu = new Cpu(rom);
-            cpu.Reset(false);
-
-            debugger = new Debugger(cpu);
-            debugger.Show();
-
-            cpuTask = new Task(() =>
-            {
-                try
-                {
-                    var frameCount = 0;
-                    var fpsWatch = Stopwatch.StartNew();
-                    while (true)
-                    {
-                        while (pause)
-                            Thread.Sleep(100);
-                        var watch = Stopwatch.StartNew();
-
-                        cpu.Run();
-                        frameCount++;
-
-                        Invalidate();
-
-                        debugger.UpdateBackgroundBuffers();
-
-                        if (frameCount % 60 == 0)
-                        {
-                            var fps = 60 / fpsWatch.Elapsed.TotalSeconds;
-                            fpsWatch.Restart();
-                            Console.WriteLine("FPS: {0}", fps);
-                        }
-
-                        debugger.UpdateMemory();
-
-                        while (watch.ElapsedMilliseconds < 16)
-                            Thread.Sleep(0);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(ex.ToString());
-                }
-            });
-
-            cpuTask.Start();
 
             KeyDown += new KeyEventHandler(this.HandleKeyDown);
             KeyUp += new KeyEventHandler(this.HandleKeyUp);
@@ -129,18 +89,156 @@ namespace Yawnese
 
             Console.WriteLine("Using gamepad {0}", gamepad != null);
 
+            var menu = new MenuStrip();
+            var fileMenu = new ToolStripMenuItem("File");
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("Open", null, new EventHandler(LoadRom)));
+            fileMenu.DropDownItems.Add(new ToolStripSeparator());
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("Exit", null, new EventHandler(Exit)));
+
+            var optionsMenu = new ToolStripMenuItem("Options");
+            optionsMenu.DropDownItems.Add(new ToolStripMenuItem("Show debugger", null, new EventHandler(ToggleDebugger)));
+
+            menu.Items.Add(fileMenu);
+            menu.Items.Add(optionsMenu);
+            MainMenuStrip = menu;
+
+            Controls.Add(menu);
+
             Focus();
+        }
+
+        protected void LoadRom(object sender, EventArgs e)
+        {
+            string file;
+            using (var dialog = new OpenFileDialog())
+            {
+                dialog.Filter = "NES roms (*.nes)|*.nes|All files|*.*";
+                dialog.RestoreDirectory = true;
+
+                if (dialog.ShowDialog() != DialogResult.OK)
+                    return;
+
+                file = dialog.FileName;
+            }
+
+            var rom = new Cartridge(file);
+            cpu = new Cpu(rom);
+            cpu.Reset(false);
+
+            if (debugger != null)
+                debugger.Dispose();
+
+            if (cpuTask != null)
+            {
+                exitCpu = true;
+                cpuTask.Wait();
+                exitCpu = false;
+            }
+
+            if (showDebugger)
+            {
+                debugger = new Debugger(cpu);
+                debugger.Show();
+            }
+
+            cpuTask = new Task(() =>
+            {
+                try
+                {
+                    var frameCount = 0;
+                    var fpsWatch = Stopwatch.StartNew();
+                    while (true)
+                    {
+                        if (exitCpu)
+                            break;
+
+                        while (pause || !isActive)
+                        {
+                            fpsWatch.Stop();
+                            Thread.Sleep(100);
+                        }
+                        fpsWatch.Start();
+                        var watch = Stopwatch.StartNew();
+
+                        cpu.Run();
+                        frameCount++;
+
+                        Invalidate();
+
+                        debugger?.UpdateBackgroundBuffers();
+
+                        if (frameCount % 60 == 0)
+                        {
+                            var fps = 60 / fpsWatch.Elapsed.TotalSeconds;
+                            fpsWatch.Restart();
+                            Console.WriteLine("FPS: {0}", fps);
+                        }
+
+                        while (watch.Elapsed.TotalMilliseconds < 16.5)
+                            Thread.Sleep(0);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.ToString());
+                }
+            });
+
+            cpuTask.Start();
+
+            Focus();
+        }
+
+        protected void Exit(object sender, EventArgs e)
+        {
+            Close();
+        }
+
+        protected void ToggleDebugger(object sender, EventArgs e)
+        {
+            showDebugger = !showDebugger;
+            if (showDebugger)
+            {
+                if (cpu != null)
+                {
+                    debugger = new Debugger(cpu);
+                    debugger.Show();
+                }
+                ((ToolStripMenuItem)sender).Checked = true;
+            }
+            else
+            {
+                debugger.Close();
+                debugger = null;
+                ((ToolStripMenuItem)sender).Checked = false;
+            }
         }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            cpu.bus.ppu.GetImage(bitmap);
-            image.Image = bitmap;
+            if (cpu != null)
+            {
+                cpu.bus.ppu.GetImage(bitmap);
+                image.Image = bitmap;
+            }
             base.OnPaint(e);
+        }
+
+        protected void HandleActivate(object sender, EventArgs e)
+        {
+            isActive = true;
+        }
+
+        protected void HandleDeactivate(object sender, EventArgs e)
+        {
+            isActive = false;
         }
 
         protected void HandleKeyDown(object sender, KeyEventArgs e)
         {
+            if (cpu == null)
+                return;
+
             if (e.KeyCode == Keys.Space)
                 cpu.bus.controller1.Update(ControllerButton.SELECT, true);
             if (e.KeyCode == Keys.Enter)
@@ -164,6 +262,9 @@ namespace Yawnese
 
         protected void HandleKeyUp(object sender, KeyEventArgs e)
         {
+            if (cpu == null)
+                return;
+
             if (e.KeyCode == Keys.Space)
                 cpu.bus.controller1.Update(ControllerButton.SELECT, false);
             if (e.KeyCode == Keys.Enter)

@@ -53,7 +53,21 @@ namespace Yawnese
 
         public void UpdateMemory()
         {
-            Invalidate();
+            var sb = new StringBuilder();
+            var vram = cpu.bus.ppu.vram;
+
+            for (var i = 0x2000; i < 0x3000; ++i)
+            {
+                if (i % 32 == 0)
+                    sb.AppendFormat("{0:X4} ", i);
+
+                sb.AppendFormat("{0:X2} ", vram[i]);
+
+                if (i % 32 == 31)
+                    sb.AppendLine();
+            }
+
+            memory.Text = sb.ToString();
         }
 
         public void UpdateBackgroundBuffers()
@@ -63,23 +77,6 @@ namespace Yawnese
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            /*
-                        var sb = new StringBuilder();
-                        var vram = cpu.bus.ppu.vram;
-
-                        for (var i = 0x2000; i < 0x3000; ++i)
-                        {
-                            if (i % 32 == 0)
-                                sb.AppendFormat("{0:X4} ", i);
-
-                            sb.AppendFormat("{0:X2} ", vram[i]);
-
-                            if (i % 32 == 31)
-                                sb.AppendLine();
-                        }
-
-                        memory.Text = sb.ToString();
-            */
             cpu.bus.ppu.GetBackgroundBuffers(ppuImage);
             ppu.Image = ppuImage;
             base.OnPaint(e);

@@ -1,4 +1,6 @@
-﻿namespace Yawnese
+﻿using System.Drawing;
+
+namespace Yawnese
 {
     partial class Screen
     {
@@ -30,8 +32,9 @@
         {
             this.components = new System.ComponentModel.Container();
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(256 * 2, 240 * 2);
+            this.ClientSize = new System.Drawing.Size(256 * 2, 240 * 2 + 24);
             this.Text = "Yawnese";
+            this.BackColor = Color.Black;
         }
 
         #endregion
