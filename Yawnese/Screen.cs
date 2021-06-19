@@ -11,6 +11,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using XInput.Wrapper;
 using Yawnese.Emulator;
 
 namespace Yawnese
@@ -28,6 +29,10 @@ namespace Yawnese
         Debugger debugger;
 
         bool pause;
+
+        X.Gamepad gamepad;
+
+        Task gamepadTask;
 
         public Screen()
         {
@@ -56,6 +61,7 @@ namespace Yawnese
                         while (pause)
                             Thread.Sleep(100);
                         var watch = Stopwatch.StartNew();
+
                         cpu.Run();
                         frameCount++;
 
@@ -86,6 +92,42 @@ namespace Yawnese
 
             KeyDown += new KeyEventHandler(this.HandleKeyDown);
             KeyUp += new KeyEventHandler(this.HandleKeyUp);
+
+            if (X.Available)
+            {
+                gamepad = X.AvailableGamepads.FirstOrDefault();
+
+                if (gamepad != null)
+                {
+                    X.Gamepad.Enable = true;
+
+                    gamepadTask = new Task(() =>
+                    {
+                        while (true)
+                        {
+                            if (gamepad.Update())
+                            {
+                                Console.WriteLine("Gamepad state {0}", gamepad.ButtonsState);
+
+                                cpu.bus.controller1.Update(ControllerButton.BUTTON_A, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.A));
+                                cpu.bus.controller1.Update(ControllerButton.BUTTON_B, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.X));
+                                cpu.bus.controller1.Update(ControllerButton.START, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.Start));
+                                cpu.bus.controller1.Update(ControllerButton.SELECT, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.Back));
+                                cpu.bus.controller1.Update(ControllerButton.UP, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.Up));
+                                cpu.bus.controller1.Update(ControllerButton.DOWN, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.Down));
+                                cpu.bus.controller1.Update(ControllerButton.LEFT, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.Left));
+                                cpu.bus.controller1.Update(ControllerButton.RIGHT, gamepad.ButtonsState.HasFlag(X.Gamepad.ButtonFlags.Right));
+                            }
+
+                            Thread.Sleep(50);
+                        }
+                    });
+
+                    gamepadTask.Start();
+                }
+            }
+
+            Console.WriteLine("Using gamepad {0}", gamepad != null);
 
             Focus();
         }
