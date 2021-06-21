@@ -67,7 +67,7 @@ namespace Yawnese.Emulator
                     return controller1.Read();
                 case 0x4017:
                     return controller2.Read();
-                case var a when (a >= 0x8000 && a <= 0xFFFF):
+                case var a when (a >= 0x4020 && a <= 0xFFFF):
                     return mapper.PrgRead(addr);
                 default:
                     throw new Exception(string.Format("Read invalid address {0:X4}", addr));
@@ -103,7 +103,7 @@ namespace Yawnese.Emulator
                     break;
 
                 case var a when (a >= 0x4020 && a <= 0xFFFF):
-                    mapper.Write(addr, data);
+                    mapper.PrgWrite(addr, data);
                     break;
 
                 default:

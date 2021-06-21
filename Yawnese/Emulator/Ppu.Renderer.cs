@@ -13,19 +13,33 @@ namespace Yawnese.Emulator
             if (mask.HasFlag(PpuMask.RenderBackground))
             {
                 int nameTable = (control.HasFlag(PpuControl.NameTable2) ? 2 : 0) + (control.HasFlag(PpuControl.NameTable1) ? 1 : 0);
+                int secondaryNameTable = 0;
                 int bank = control.HasFlag(PpuControl.BgPatternAddr) ? 0x1000 : 0;
 
-                switch ((nameTable, mirroring))
+                switch ((nameTable, rom.mapper.Mirroring))
                 {
+                    case (_, Mirroring.ScreenAOnly):
+                        nameTable = 0;
+                        secondaryNameTable = 0;
+                        break;
+
+                    case (_, Mirroring.ScreenBOnly):
+                        nameTable = 1;
+                        secondaryNameTable = 1;
+                        break;
+
                     case (0, _):
                     case (1, Mirroring.Horizontal):
                     case (2, Mirroring.Vertical):
                         nameTable = 0;
+                        secondaryNameTable = 1;
                         break;
+
                     case (1, Mirroring.Vertical):
                     case (2, Mirroring.Horizontal):
                     case (3, _):
                         nameTable = 1;
+                        secondaryNameTable = 0;
                         break;
                 }
 
@@ -34,10 +48,20 @@ namespace Yawnese.Emulator
                     if (x < 8 && !mask.HasFlag(PpuMask.RenderBackgroundColumn1))
                         continue;
 
-                    if (x < 256 - scroll.scroll_x)
-                        RenderBackground(nameTable, bank, x + scroll.scroll_x, scanline, -scroll.scroll_x);
+                    if (scroll.scroll_y == 0)
+                    {
+                        if (x < 256 - scroll.scroll_x)
+                            RenderBackground(nameTable, bank, x + scroll.scroll_x, scanline, -scroll.scroll_x, 0);
+                        else
+                            RenderBackground(secondaryNameTable, bank, x + scroll.scroll_x - 256, scanline, 256 - scroll.scroll_x, 0);
+                    }
                     else
-                        RenderBackground(nameTable == 0 ? 1 : 0, bank, x + scroll.scroll_x - 256, scanline, 256 - scroll.scroll_x);
+                    {
+                        if (scanline < 240 - scroll.scroll_y)
+                            RenderBackground(nameTable, bank, x, scanline + scroll.scroll_y, 0, -scroll.scroll_y);
+                        else
+                            RenderBackground(secondaryNameTable, bank, x, scanline + scroll.scroll_y - 240, 0, 240 - scroll.scroll_y);
+                    }
                 }
             }
 
@@ -98,7 +122,7 @@ namespace Yawnese.Emulator
             img.UnlockBits(imgLock);
         }
 
-        void RenderBackground(int nameTable, int bank, int x, int y, int offsetX)
+        void RenderBackground(int nameTable, int bank, int x, int y, int offsetX, int offsetY)
         {
             int row = y / 8;
             int col = x / 8;
@@ -113,13 +137,18 @@ namespace Yawnese.Emulator
             var shift = 7 - (x % 8);
             var b1 = (lower >> shift) & 1;
             var b2 = (upper >> shift) & 1;
+            var value = (b2 << 1) | b1;
 
-            int rgb = GetColor(palette[(b2 << 1) | b1]);
-            SetPixel(offsetX + x, y, rgb);
+            var paletteIdx = palette[value];
+
+            int rgb = GetColor(paletteIdx);
+            SetPixel(offsetX + x, offsetY + y, rgb, value != 0);
         }
 
         void RenderSprite(int bank, int i, int scanline)
         {
+            var largeSprites = control.HasFlag(PpuControl.SpriteSize);
+
             var tileAttr = oamData[i + 2];
             var tileIdx = oamData[i + 1];
             var tileY = oamData[i];
@@ -129,20 +158,24 @@ namespace Yawnese.Emulator
             var flipV = (tileAttr & 0x80) != 0;
             var behind = (tileAttr & 0x20) != 0;
 
-            if (tileY > scanline || tileY + 7 < scanline)
+            if (tileY > scanline || tileY + (largeSprites ? 16 : 8) <= scanline)
                 return;
 
             var paletteIdx = tileAttr & 0b11;
             var palette = SpritePalette(paletteIdx);
 
-            var offset = bank + tileIdx * 16;
             var y = scanline - tileY;
-
             if (flipV)
-                y = 7 - y;
+                y = (largeSprites ? 15 : 7) - y;
 
-            var lower = rom.mapper.ChrRead((ushort)(offset + y));
-            var upper = rom.mapper.ChrRead((ushort)(offset + y + 8));
+            var offset = 0;
+            if (largeSprites)
+                offset = (((tileIdx & 1) == 0 ? 0 : 0x1000) | ((tileIdx & 0xFE) << 4)) + (y >= 8 ? y + 8 : y);
+            else
+                offset = (bank | (tileIdx << 4)) + y;
+
+            var lower = rom.mapper.ChrRead((ushort)offset);
+            var upper = rom.mapper.ChrRead((ushort)(offset + 8));
 
             for (var x = 7; x >= 0; --x)
             {
@@ -162,8 +195,7 @@ namespace Yawnese.Emulator
                     spriteHitThisFrame = true;
                 }
 
-                if (!behind)
-                    SetPixel(renderX, scanline, rgb);
+                SetPixel(renderX, scanline, rgb, !behind);
             }
         }
 
@@ -230,12 +262,19 @@ namespace Yawnese.Emulator
             return rgb;
         }
 
-        void SetPixel(int x, int y, int color)
+        void SetPixel(int x, int y, int color, bool priority)
         {
             if (x < 0 || x >= 256 || y < 0 || y >= 240) return;
-            buffer[currentBuffer][(y * 256 + x) * 3 + 0] = (byte)(color >> 0);
-            buffer[currentBuffer][(y * 256 + x) * 3 + 1] = (byte)(color >> 8);
-            buffer[currentBuffer][(y * 256 + x) * 3 + 2] = (byte)(color >> 16);
+
+            var offset = (y * 256 + x) * 3;
+
+            if (!priority && bufferPriority[y * 256 + x]) return;
+
+            buffer[0][offset + 0] = (byte)(color >> 0);
+            buffer[0][offset + 1] = (byte)(color >> 8);
+            buffer[0][offset + 2] = (byte)(color >> 16);
+
+            bufferPriority[y * 256 + x] = priority;
         }
 
         static readonly int[] NES_PALETTE = new[] {

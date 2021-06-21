@@ -31,7 +31,9 @@ namespace Yawnese.Emulator
     public enum Mirroring
     {
         Horizontal,
-        Vertical
+        Vertical,
+        ScreenAOnly,
+        ScreenBOnly,
     }
 
     [Flags]

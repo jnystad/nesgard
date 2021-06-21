@@ -1,11 +1,19 @@
 using System;
 using System.IO;
+using System.Text;
 using Yawnese.Emulator.Mappers;
 
 namespace Yawnese.Emulator
 {
     public class Cartridge
     {
+        public enum CartridgeType
+        {
+            Nes2_0,
+            iNes,
+            OldiNes,
+        }
+
         public struct Header
         {
             public byte[] raw;
@@ -17,10 +25,10 @@ namespace Yawnese.Emulator
             public bool persistent;
             public bool trainer;
             public bool four_screen_vram;
-            public byte mapper;
+            public ushort mapper;
             public bool vs_unisystem;
             public bool playchoice_10;
-            public bool nes_2_0;
+            public CartridgeType type;
             public bool ntsc;
 
             public Header(byte[] data)
@@ -33,18 +41,70 @@ namespace Yawnese.Emulator
                 persistent = (data[6] & 0b10) != 0;
                 trainer = (data[6] & 0b100) != 0;
                 four_screen_vram = (data[6] & 0b1000) != 0;
-                mapper = (byte)((data[6] >> 4) | (data[7] & 0xF0));
+
+                if ((data[7] & 0b1100) == 0b1000)
+                {
+                    type = CartridgeType.Nes2_0;
+                }
+                else if ((data[7] & 0x0C) == 0)
+                {
+                    type = CartridgeType.iNes;
+                }
+                else
+                {
+                    type = CartridgeType.OldiNes;
+                }
+
+                switch (type)
+                {
+                    case CartridgeType.Nes2_0:
+                        mapper = (ushort)(((data[8] & 0x0F) << 8) | (data[7] & 0xF0) | (data[6] >> 4));
+                        break;
+
+                    case CartridgeType.OldiNes:
+                        mapper = (ushort)(data[6] >> 4);
+                        break;
+
+                    default:
+                    case CartridgeType.iNes:
+                        mapper = (ushort)((data[7] & 0xF0) | (data[6] >> 4));
+                        break;
+                }
+
                 vs_unisystem = (data[7] & 0b1) != 0;
                 playchoice_10 = (data[7] & 0b10) != 0;
-                nes_2_0 = (data[7] & 0b1100) == 0b1000;
                 prg_ram_pages = data[8];
                 ntsc = (data[10] & 0b1) == 0;
             }
+
+            public override string ToString()
+            {
+                var sb = new StringBuilder();
+
+                sb.AppendFormat("ROM type: {0}\n", type);
+                sb.AppendFormat("PRG ROM pages: {0}\n", prg_rom_pages);
+                sb.AppendFormat("CHR ROM pages: {0}\n", chr_rom_pages);
+                sb.AppendFormat("Mapper: {0}\n", mapper);
+                sb.AppendFormat("Persistence: {0}\n", persistent);
+                sb.AppendFormat("Mirroring: {0} 4s: {1}\n", mirroring, four_screen_vram);
+                sb.AppendFormat("Trainer: {0}\n", trainer);
+                sb.AppendFormat("NTSC: {0}", ntsc);
+
+                return sb.ToString();
+            }
+        }
+
+        public struct CartridgeData
+        {
+            public byte[] prgRom;
+            public byte[] chrRom;
         }
 
         public Header header;
 
         public IMapper mapper;
+
+        public CartridgeData data;
 
         public Cartridge(string file)
         {
@@ -55,27 +115,41 @@ namespace Yawnese.Emulator
 
                 header = new Header(headerRaw);
 
+                Console.WriteLine(header.ToString());
+
                 var trainer = new byte[256];
                 if (header.trainer)
                     fs.Read(trainer, 0, 256);
 
-                var prg_rom = new byte[16384 * header.prg_rom_pages];
-                fs.Read(prg_rom, 0, prg_rom.Length);
+                var prgRom = new byte[16384 * header.prg_rom_pages];
+                fs.Read(prgRom, 0, prgRom.Length);
 
-                var chr_rom = new byte[8192 * Math.Max(1, header.chr_rom_pages)];
-                fs.Read(chr_rom, 0, chr_rom.Length);
+                var chrRom = new byte[8192 * header.chr_rom_pages];
+                fs.Read(chrRom, 0, chrRom.Length);
 
-                switch (header.mapper)
+                data = new CartridgeData
                 {
-                    case 0:
-                        mapper = new Mapper0(this, prg_rom, chr_rom);
-                        break;
+                    prgRom = prgRom,
+                    chrRom = chrRom,
+                };
 
-                    default:
-                        throw new Exception(string.Format("Unsupported mapper {0}", header.mapper));
-                }
-
+                mapper = GetMapper(header.mapper);
             }
+        }
+
+        private IMapper GetMapper(ushort mapper)
+        {
+            switch (mapper)
+            {
+                case 0: return new NROM(this);
+                case 1: return new MMC1(this);
+                case 2: return new UxROM(this);
+                case 66: return new GxROM(this);
+
+                default:
+                    throw new Exception(string.Format("Unsupported mapper {0}", header.mapper));
+            }
+
         }
     }
 }

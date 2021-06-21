@@ -69,8 +69,6 @@ namespace Yawnese.Emulator
 
         Cartridge rom;
 
-        public Mirroring mirroring;
-
         public byte[] vram;
 
         byte read_buffer;
@@ -78,6 +76,8 @@ namespace Yawnese.Emulator
         public ushort scanline;
 
         public ulong cycles;
+
+        public ulong frameCount;
 
         public bool nmi = false;
 
@@ -99,14 +99,13 @@ namespace Yawnese.Emulator
 
         private byte[][] buffer;
 
-        private int currentBuffer = 0;
+        private bool[] bufferPriority;
 
         private byte openBus;
 
         public Ppu(Cartridge rom)
         {
             this.rom = rom;
-            mirroring = rom.header.mirroring;
 
             vram = new byte[0x4000];
             oamData = new byte[256];
@@ -117,11 +116,12 @@ namespace Yawnese.Emulator
                 new byte[256 * 240 * 3],
                 new byte[256 * 240 * 3],
             };
+            bufferPriority = new bool[256 * 240];
         }
 
         public void GetImage(Bitmap img)
         {
-            var data = buffer[(currentBuffer + 1) % 2];
+            var data = buffer[1];
             var imgLock = img.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
             Marshal.Copy(data, 0, imgLock.Scan0, data.Length);
             img.UnlockBits(imgLock);
@@ -131,6 +131,7 @@ namespace Yawnese.Emulator
         {
             cycles = 0;
             scanline = 0;
+            frameCount = 0;
             nmi = false;
             status = 0;
             control = 0;
@@ -143,7 +144,25 @@ namespace Yawnese.Emulator
 
         public PpuResult Tick()
         {
-            cycles += 3;
+            var r1 = Cycle();
+            var r2 = Cycle();
+            var r3 = Cycle();
+            if (r1 != PpuResult.None)
+                return r1;
+            if (r2 != PpuResult.None)
+                return r2;
+            return r3;
+        }
+
+        protected PpuResult Cycle()
+        {
+            ++cycles;
+
+            if (cycles == 339 && (frameCount & 1) == 1 && scanline == 262 && rom.header.ntsc)
+            {
+                // Skip one cycle every odd frame for NTSC ROMs
+                cycles = 340;
+            }
 
             if (cycles >= 341)
             {
@@ -156,9 +175,10 @@ namespace Yawnese.Emulator
 
                 if (scanline == 241)
                 {
-                    currentBuffer = (currentBuffer + 1) % 2;
-                    for (var i = 0; i < buffer[currentBuffer].Length; ++i)
-                        buffer[currentBuffer][i] = 0;
+                    for (var i = 0; i < buffer[0].Length; ++i)
+                        buffer[1][i] = buffer[0][i];
+                    for (var i = 0; i < bufferPriority.Length; ++i)
+                        bufferPriority[i] = false;
                     status |= PpuStatus.Vblank;
                     if (control.HasFlag(PpuControl.GenerateNMI))
                     {
@@ -173,6 +193,8 @@ namespace Yawnese.Emulator
                     spriteHitThisFrame = false;
                     status &= ~PpuStatus.Vblank;
                     nmi = false;
+
+                    frameCount++;
                     return PpuResult.EndOfFrame;
                 }
                 return PpuResult.Scanline;
@@ -328,7 +350,8 @@ namespace Yawnese.Emulator
             switch (addr)
             {
                 case ushort a when (a <= 0x1FFF):
-                    throw new Exception(string.Format("Attempt to write to CHR ROM, {0x}", addr));
+                    rom.mapper.ChrWrite(addr, data);
+                    break;
 
                 case ushort a when (a <= 0x2FFF):
                     vram[MirrorVramAddr(addr)] = data;
@@ -358,8 +381,14 @@ namespace Yawnese.Emulator
         ushort MirrorVramAddr(ushort addr)
         {
             var name_table = ((addr & 0x2fff) - 0x2000) / 0x400;
-            switch (mirroring, name_table)
+            switch (rom.mapper.Mirroring, name_table)
             {
+                case (Mirroring.ScreenAOnly, _):
+                    return (ushort)(addr & 0x23FF);
+
+                case (Mirroring.ScreenBOnly, _):
+                    return (ushort)((addr & 0x23FF) | 0x0400);
+
                 case (Mirroring.Vertical, 2):
                 case (Mirroring.Vertical, 3):
                 case (Mirroring.Horizontal, 3):

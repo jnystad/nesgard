@@ -105,7 +105,7 @@ namespace Yawnese.Emulator
                     registers.status |= CpuStatus.InterruptDisable;
                 }
 
-                if (cycles < 200000)
+                if (cycles < 500000)
                     LogTrace();
 
                 if (testMode && cycles > 26600)
