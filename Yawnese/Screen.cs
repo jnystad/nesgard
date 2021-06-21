@@ -24,9 +24,9 @@ namespace Yawnese
 
         Bitmap bitmap;
 
-        Debugger debugger;
+        PpuNameTableViewer ppuNameTableViewer;
 
-        bool showDebugger;
+        bool showPpuNameTableViewer;
 
         bool pause;
 
@@ -93,11 +93,11 @@ namespace Yawnese
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
             fileMenu.DropDownItems.Add(new ToolStripMenuItem("Exit", null, new EventHandler(Exit)));
 
-            var optionsMenu = new ToolStripMenuItem("Options");
-            optionsMenu.DropDownItems.Add(new ToolStripMenuItem("Show debugger", null, new EventHandler(ToggleDebugger)));
+            var debugMenu = new ToolStripMenuItem("Debug");
+            debugMenu.DropDownItems.Add(new ToolStripMenuItem("PPU Name Table Viewer", null, new EventHandler(TogglePpuNameTableViewer)));
 
             menu.Items.Add(fileMenu);
-            menu.Items.Add(optionsMenu);
+            menu.Items.Add(debugMenu);
             MainMenuStrip = menu;
 
             Controls.Add(menu);
@@ -108,10 +108,10 @@ namespace Yawnese
 
         protected void LoadRom(object sender, EventArgs e)
         {
-            if (debugger != null)
+            if (ppuNameTableViewer != null)
             {
-                debugger.Dispose();
-                debugger = null;
+                ppuNameTableViewer.Dispose();
+                ppuNameTableViewer = null;
             }
 
             if (cpuTask != null)
@@ -152,10 +152,10 @@ namespace Yawnese
                 return;
             }
 
-            if (showDebugger)
+            if (showPpuNameTableViewer)
             {
-                debugger = new Debugger(cpu);
-                debugger.Show();
+                ppuNameTableViewer = new PpuNameTableViewer(cpu);
+                ppuNameTableViewer.Show();
             }
 
             cpuTask = new Task(() =>
@@ -182,7 +182,8 @@ namespace Yawnese
 
                         Invalidate();
 
-                        debugger?.UpdateBackgroundBuffers();
+                        if (frameCount % 5 == 0)
+                            ppuNameTableViewer?.Rerender();
 
                         if (frameCount % 60 == 0)
                         {
@@ -211,22 +212,25 @@ namespace Yawnese
             Close();
         }
 
-        protected void ToggleDebugger(object sender, EventArgs e)
+        protected void TogglePpuNameTableViewer(object sender, EventArgs e)
         {
-            showDebugger = !showDebugger;
-            if (showDebugger)
+            showPpuNameTableViewer = !showPpuNameTableViewer;
+            if (showPpuNameTableViewer)
             {
                 if (cpu != null)
                 {
-                    debugger = new Debugger(cpu);
-                    debugger.Show();
+                    ppuNameTableViewer = new PpuNameTableViewer(cpu);
+                    ppuNameTableViewer.Show();
                 }
                 ((ToolStripMenuItem)sender).Checked = true;
             }
             else
             {
-                debugger.Close();
-                debugger = null;
+                if (ppuNameTableViewer != null)
+                {
+                    ppuNameTableViewer.Close();
+                    ppuNameTableViewer = null;
+                }
                 ((ToolStripMenuItem)sender).Checked = false;
             }
         }

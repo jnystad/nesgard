@@ -1,11 +1,14 @@
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Yawnese.Emulator
 {
     partial class Ppu
     {
+        private byte[] palette = new byte[4];
+
         void RenderScanline()
         {
             if (scanline >= 240) return;
@@ -75,60 +78,13 @@ namespace Yawnese.Emulator
             }
         }
 
-        public void GetBackgroundBuffers(Bitmap img)
-        {
-            int bufferSize = 256 * 240 * 3;
-            byte[] buffer = new byte[bufferSize * 2];
-            int bank = control.HasFlag(PpuControl.BgPatternAddr) ? 0x1000 : 0;
-
-            for (var nameTable = 0; nameTable < 2; ++nameTable)
-            {
-                for (var row = 0; row < 30; ++row)
-                {
-                    for (var col = 0; col < 32; ++col)
-                    {
-                        var palette = BackgroundPalette(nameTable, col, row);
-                        var tile = vram[0x2000 + nameTable * 0x400 + row * 32 + col];
-
-                        for (var y = 0; y < 8; ++y)
-                        {
-                            var lower = rom.mapper.ChrRead((ushort)(bank + tile * 16 + y));
-                            var upper = rom.mapper.ChrRead((ushort)(bank + tile * 16 + y + 8));
-
-                            for (var x = 7; x >= 0; --x)
-                            {
-                                var b1 = (lower) & 1;
-                                var b2 = (upper) & 1;
-
-                                lower >>= 1;
-                                upper >>= 1;
-
-                                int rgb = GetColor(palette[(b2 << 1) | b1]);
-
-                                var renderY = (row * 8 + y);
-                                var renderX = (col * 8 + x);
-                                var offset = ((nameTable + renderY * 2) * 256 + x + col * 8) * 3;
-                                buffer[offset + 0] = (byte)rgb;
-                                buffer[offset + 1] = (byte)(rgb >> 8);
-                                buffer[offset + 2] = (byte)(rgb >> 16);
-                            }
-                        }
-                    }
-                }
-            }
-
-            var imgLock = img.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-            Marshal.Copy(buffer, 0, imgLock.Scan0, buffer.Length);
-            img.UnlockBits(imgLock);
-        }
-
         void RenderBackground(int nameTable, int bank, int x, int y, int offsetX, int offsetY)
         {
             int row = y / 8;
             int col = x / 8;
 
             var tile = vram[0x2000 + nameTable * 0x400 + row * 32 + col];
-            var palette = BackgroundPalette(nameTable, col, row);
+            BackgroundPalette(nameTable, col, row, ref palette);
 
             var offset = y % 8;
             var lower = rom.mapper.ChrRead((ushort)(bank + tile * 16 + offset));
@@ -139,9 +95,7 @@ namespace Yawnese.Emulator
             var b2 = (upper >> shift) & 1;
             var value = (b2 << 1) | b1;
 
-            var paletteIdx = palette[value];
-
-            int rgb = GetColor(paletteIdx);
+            var rgb = GetColor(palette[value]);
             SetPixel(offsetX + x, offsetY + y, rgb, value != 0);
         }
 
@@ -162,7 +116,7 @@ namespace Yawnese.Emulator
                 return;
 
             var paletteIdx = tileAttr & 0b11;
-            var palette = SpritePalette(paletteIdx);
+            SpritePalette(paletteIdx, ref palette);
 
             var y = scanline - tileY;
             if (flipV)
@@ -199,20 +153,17 @@ namespace Yawnese.Emulator
             }
         }
 
-        byte[] SpritePalette(int paletteIdx)
+        void SpritePalette(int paletteIdx, ref byte[] palette)
         {
             var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
             var idx = 0x3F11 + paletteIdx * 4;
-            return new byte[]
-            {
-                0,
-                (byte)(vram[idx] & m),
-                (byte)(vram[idx + 1] & m),
-                (byte)(vram[idx + 2] & m),
-            };
+            palette[0] = 0;
+            palette[1] = ((byte)(vram[idx] & m));
+            palette[2] = ((byte)(vram[idx + 1] & m));
+            palette[3] = ((byte)(vram[idx + 2] & m));
         }
 
-        byte[] BackgroundPalette(int nameTable, int column, int row)
+        void BackgroundPalette(int nameTable, int column, int row, ref byte[] palette)
         {
             var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
             var attr = vram[0x23C0 + nameTable * 0x400 + row / 4 * 8 + column / 4];
@@ -233,15 +184,13 @@ namespace Yawnese.Emulator
                     break;
             }
             var idx = 0x3F01 + select * 4;
-            return new byte[]
-            {
-                (byte)(vram[0x3F00] & m),
-                (byte)(vram[idx] & m),
-                (byte)(vram[idx + 1] & m),
-                (byte)(vram[idx + 2] & m),
-            };
+            palette[0] = ((byte)(vram[0x3F00] & m));
+            palette[1] = ((byte)(vram[idx] & m));
+            palette[2] = ((byte)(vram[idx + 1] & m));
+            palette[3] = ((byte)(vram[idx + 2] & m));
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         int GetColor(byte paletteIdx)
         {
             var rgb = NES_PALETTE[paletteIdx];
@@ -275,6 +224,88 @@ namespace Yawnese.Emulator
             buffer[0][offset + 2] = (byte)(color >> 16);
 
             bufferPriority[y * 256 + x] = priority;
+        }
+
+        public void GetBackgroundBuffers(Bitmap img)
+        {
+            int bufferSize = 256 * 240 * 3;
+            byte[] buffer = new byte[bufferSize * 4];
+            var palette = new byte[4];
+            var rgbs = new int[4];
+            int bank = control.HasFlag(PpuControl.BgPatternAddr) ? 0x1000 : 0;
+
+            int rgb, offset;
+            byte tile, lower, upper;
+
+            for (var part = 0; part < 4; ++part)
+            {
+                int xOff = 256 * (part % 2);
+                int yOff = 240 * (part / 2);
+
+                var nameTable = 0;
+                switch (rom.mapper.Mirroring)
+                {
+                    case Mirroring.Horizontal:
+                        nameTable = part / 2;
+                        break;
+
+                    case Mirroring.Vertical:
+                        nameTable = part % 2;
+                        break;
+
+                    case Mirroring.ScreenAOnly:
+                        nameTable = 0;
+                        break;
+
+                    case Mirroring.ScreenBOnly:
+                        nameTable = 1;
+                        break;
+                }
+                for (var row = 0; row < 30; ++row)
+                {
+                    for (var col = 0; col < 32; ++col)
+                    {
+                        BackgroundPalette(nameTable, col, row, ref palette);
+                        rgbs[0] = GetColor(palette[0]);
+                        rgbs[1] = GetColor(palette[1]);
+                        rgbs[2] = GetColor(palette[2]);
+                        rgbs[3] = GetColor(palette[3]);
+
+                        tile = vram[0x2000 + nameTable * 0x400 + row * 32 + col];
+
+                        for (var y = 0; y < 8; ++y)
+                        {
+                            lower = rom.mapper.ChrRead((ushort)(bank + tile * 16 + y));
+                            upper = rom.mapper.ChrRead((ushort)(bank + tile * 16 + y + 8));
+
+                            for (var x = 7; x >= 0; --x)
+                            {
+                                rgb = (rgbs[((upper & 1) << 1) | (lower & 1)]);
+                                lower >>= 1;
+                                upper >>= 1;
+
+                                offset = ((yOff + row * 8 + y) * 512 + xOff + col * 8 + x) * 3;
+                                buffer[offset + 0] = (byte)rgb;
+                                buffer[offset + 1] = (byte)(rgb >> 8);
+                                buffer[offset + 2] = (byte)(rgb >> 16);
+                            }
+                        }
+                    }
+                }
+            }
+
+            var imgLock = img.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            Marshal.Copy(buffer, 0, imgLock.Scan0, buffer.Length);
+            img.UnlockBits(imgLock);
+        }
+
+        public string GetStatusText()
+        {
+            int nameTable = (control.HasFlag(PpuControl.NameTable2) ? 2 : 0) + (control.HasFlag(PpuControl.NameTable1) ? 1 : 0);
+            return string.Format(
+                "Control: {0:X2}, Mask: {1:X2}, Scroll: {2},{3}, Name table: {4}, Mirror: {5}",
+                (int)control, (int)mask, scroll.scroll_x, scroll.scroll_y, nameTable, rom.mapper.Mirroring
+            );
         }
 
         static readonly int[] NES_PALETTE = new[] {

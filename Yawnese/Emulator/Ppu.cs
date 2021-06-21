@@ -158,10 +158,21 @@ namespace Yawnese.Emulator
         {
             ++cycles;
 
-            if (cycles == 339 && (frameCount & 1) == 1 && scanline == 262 && rom.header.ntsc)
+            if (cycles >= 257 && cycles <= 320)
+            {
+                if (IsRenderingEnabled)
+                    oamAddress = 0;
+            }
+            else if (cycles == 339 && (frameCount & 1) == 1 && scanline == 262 && rom.header.ntsc)
             {
                 // Skip one cycle every odd frame for NTSC ROMs
                 cycles = 340;
+            }
+
+            if (cycles == 1 && scanline == 261)
+            {
+                status &= ~PpuStatus.Vblank;
+                nmi = false;
             }
 
             if (cycles >= 341)
@@ -191,8 +202,6 @@ namespace Yawnese.Emulator
                 {
                     scanline = 0;
                     spriteHitThisFrame = false;
-                    status &= ~PpuStatus.Vblank;
-                    nmi = false;
 
                     frameCount++;
                     return PpuResult.EndOfFrame;
@@ -200,6 +209,14 @@ namespace Yawnese.Emulator
                 return PpuResult.Scanline;
             }
             return PpuResult.None;
+        }
+
+        protected bool IsRenderingEnabled
+        {
+            get
+            {
+                return mask.HasFlag(PpuMask.RenderBackground) || mask.HasFlag(PpuMask.RenderSprites);
+            }
         }
 
         public bool PollNmi()
