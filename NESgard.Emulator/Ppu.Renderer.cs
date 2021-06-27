@@ -238,13 +238,13 @@ namespace NESgard.Emulator
 
         public void GetBackgroundBuffers(Bitmap img)
         {
-            int bufferSize = 256 * 240 * 3;
-            byte[] buffer = new byte[bufferSize * 4];
+            int bufferSize = 256 * 240;
+            int[] buffer = new int[bufferSize * 4];
             var palette = new byte[4];
             var rgbs = new int[4];
             int bank = control.HasFlag(PpuControl.BgPatternAddr) ? 0x1000 : 0;
 
-            int rgb, offset;
+            int rgb;
             byte tile, lower, upper;
 
             for (var part = 0; part < 4; ++part)
@@ -271,6 +271,7 @@ namespace NESgard.Emulator
                         nameTable = 1;
                         break;
                 }
+
                 for (var row = 0; row < 30; ++row)
                 {
                     for (var col = 0; col < 32; ++col)
@@ -290,21 +291,25 @@ namespace NESgard.Emulator
 
                             for (var x = 7; x >= 0; --x)
                             {
-                                rgb = (rgbs[((upper & 1) << 1) | (lower & 1)]);
+                                rgb = (int)((rgbs[((upper & 1) << 1) | (lower & 1)]) | 0xFF000000);
                                 lower >>= 1;
                                 upper >>= 1;
 
-                                offset = ((yOff + row * 8 + y) * 512 + xOff + col * 8 + x) * 3;
-                                buffer[offset + 0] = (byte)rgb;
-                                buffer[offset + 1] = (byte)(rgb >> 8);
-                                buffer[offset + 2] = (byte)(rgb >> 16);
+                                var outX = xOff + col * 8 + x;
+                                var outY = yOff + row * 8 + y;
+
+                                if ((frameScrollX > 255 ? outX < frameScrollX && outX > frameScrollX - 256 : outX < frameScrollX || outX > frameScrollX + 256)
+                                 || outY < frameScrollY - 240 || outY > frameScrollY)
+                                    rgb = (int)((rgb & 0xFFFFFF) | 0x80000000);
+
+                                buffer[outY * 512 + outX] = rgb;
                             }
                         }
                     }
                 }
             }
 
-            var imgLock = img.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            var imgLock = img.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
             Marshal.Copy(buffer, 0, imgLock.Scan0, buffer.Length);
             img.UnlockBits(imgLock);
         }
@@ -314,7 +319,7 @@ namespace NESgard.Emulator
             int nameTable = (control.HasFlag(PpuControl.NameTable2) ? 2 : 0) + (control.HasFlag(PpuControl.NameTable1) ? 1 : 0);
             return string.Format(
                 "Control: {0:X2}, Mask: {1:X2}, Scroll: {2},{3}, Name table: {4}, Mirror: {5}",
-                (int)control, (int)mask, fineX, 0, nameTable, rom.mapper.Mirroring
+                (int)control, (int)mask, frameScrollX, frameScrollY - 240, nameTable, rom.mapper.Mirroring
             );
         }
 

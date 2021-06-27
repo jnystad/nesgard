@@ -36,6 +36,8 @@ namespace NESgard.Emulator
         bool writeLatch = false;
 
         public int fineX = 0;
+        int frameScrollX = 0;
+        int frameScrollY = 0;
 
         private int tmpAddress = 0;
 
@@ -118,6 +120,12 @@ namespace NESgard.Emulator
                 else if (cycles == 257)
                 {
                     address = (ushort)((address & ~0x041F) | (tmpAddress & 0x041F));
+
+                    if (scanline == 239)
+                    {
+                        frameScrollX = ((address & 0x001F) << 3) | fineX | ((address & 0x0400) != 0 ? 0x0100 : 0);
+                        frameScrollY = (((address & 0x03E0) >> 2) | ((address & 0x7000) >> 12)) + ((address & 0x0800) != 0 ? 240 : 0);
+                    }
                 }
                 else if (cycles >= 280 && cycles <= 304 && scanline == -1)
                 {

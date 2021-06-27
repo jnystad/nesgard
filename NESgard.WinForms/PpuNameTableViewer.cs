@@ -20,7 +20,7 @@ namespace NESgard.WinForms
             this.cpu = cpu;
 
             AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            ClientSize = new System.Drawing.Size(512, 504);
+            ClientSize = new System.Drawing.Size(512, 502);
             Text = "PPU Name Table Viewer";
 
             var statusStrip = new StatusStrip();
@@ -31,8 +31,9 @@ namespace NESgard.WinForms
             ppu = new PictureBox();
             ppu.Dock = DockStyle.Fill;
             ppu.SizeMode = PictureBoxSizeMode.Zoom;
+            ppu.BackColor = Color.Black;
 
-            ppuImage = new Bitmap(512, 480, PixelFormat.Format24bppRgb);
+            ppuImage = new Bitmap(512, 480, PixelFormat.Format32bppArgb);
 
             Controls.Add(ppu);
             Controls.Add(statusStrip);
