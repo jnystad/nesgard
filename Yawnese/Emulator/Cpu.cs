@@ -97,11 +97,25 @@ namespace Yawnese.Emulator
         {
             while (true)
             {
+                while (bus.stallCycles > 0)
+                {
+                    Tick();
+                    bus.stallCycles--;
+                }
+
                 if (bus.PollNMI())
                 {
                     PushWord(registers.pc);
                     Push((byte)registers.status);
                     registers.pc = ReadWord(0xFFFA);
+                    registers.status |= CpuStatus.InterruptDisable;
+                }
+
+                if (bus.HasInterrupt() && !registers.status.HasFlag(CpuStatus.InterruptDisable))
+                {
+                    PushWord(registers.pc);
+                    Push((byte)registers.status);
+                    registers.pc = ReadWord(0xFFFE);
                     registers.status |= CpuStatus.InterruptDisable;
                 }
 
@@ -111,15 +125,8 @@ namespace Yawnese.Emulator
                 if (testMode && cycles > 26600)
                     throw new Exception("Test failed, too long");
 
-                while (bus.stallCycles > 0)
-                {
-                    Tick();
-                    bus.stallCycles--;
-                }
-
-                Tick();
-
                 var opcode = Next();
+                Tick();
                 switch (opcode)
                 {
                     case 0x00: brk(); break;
@@ -747,7 +754,6 @@ namespace Yawnese.Emulator
         void brk()
         {
             registers.pc += 1;
-            // interrupt();
             SetFlag(CpuStatus.InterruptDisable, true);
 
             var status = (byte)registers.status | (byte)CpuStatus.Break;

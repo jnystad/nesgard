@@ -50,6 +50,11 @@ namespace Yawnese.Emulator
 
         public bool PollNMI() { return ppu.PollNmi(); }
 
+        public bool HasInterrupt()
+        {
+            return mapper.HasInterrupt();
+        }
+
         public byte Read(ushort addr)
         {
             switch (addr)
@@ -78,7 +83,6 @@ namespace Yawnese.Emulator
         {
             switch (addr)
             {
-
                 case var a when (a <= 0x1FFF):
                     ram[addr % 0x0800] = data;
                     break;

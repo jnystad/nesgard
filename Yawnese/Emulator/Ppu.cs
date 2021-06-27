@@ -1,71 +1,14 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace Yawnese.Emulator
 {
     public partial class Ppu
     {
-        public class PpuAddress
-        {
-            bool hibyte = true;
-
-            public ushort address = 0;
-
-            Ppu ppu;
-
-            public PpuAddress(Ppu ppu)
-            {
-                this.ppu = ppu;
-            }
-
-            public void Write(byte data)
-            {
-                if (hibyte)
-                    address = (ushort)((data << 8) | (address & 0xFF));
-                else
-                    address = (ushort)((address & 0xFF00) | data);
-                hibyte = !hibyte;
-            }
-
-            public void Increment()
-            {
-                if (ppu.control.HasFlag(PpuControl.VramAddIncrement))
-                    address += 32;
-                else
-                    address += 1;
-                address &= 0x3FFF;
-            }
-
-            public void ResetLatch()
-            {
-                hibyte = true;
-            }
-        }
-
-        public class PpuScroll
-        {
-            bool latch = false;
-
-            public int scroll_y = 0;
-
-            public int scroll_x = 0;
-
-            public void Write(byte data)
-            {
-                if (latch)
-                    scroll_y = data;
-                else
-                    scroll_x = data;
-                latch = !latch;
-            }
-
-            public void ResetLatch()
-            {
-                latch = false;
-            }
-        }
+        StreamWriter traceFile;
 
         Cartridge rom;
 
@@ -73,9 +16,9 @@ namespace Yawnese.Emulator
 
         byte read_buffer;
 
-        public ushort scanline;
+        public int scanline;
 
-        public ulong cycles;
+        public int cycles;
 
         public ulong frameCount;
 
@@ -83,19 +26,23 @@ namespace Yawnese.Emulator
 
         public PpuStatus status;
 
-        private bool spriteHitThisFrame = false;
+        private bool sprite0HitThisFrame = false;
 
         public PpuControl control;
 
         public PpuMask mask;
 
-        public PpuScroll scroll = new PpuScroll();
-
-        public PpuAddress address;
-
         public byte oamAddress;
 
         public byte[] oamData;
+
+        bool writeLatch = false;
+
+        public int fineX = 0;
+
+        private int tmpAddress = 0;
+
+        public ushort address;
 
         private byte[][] buffer;
 
@@ -109,7 +56,6 @@ namespace Yawnese.Emulator
 
             vram = new byte[0x4000];
             oamData = new byte[256];
-            address = new PpuAddress(this);
 
             buffer = new[]
             {
@@ -117,6 +63,10 @@ namespace Yawnese.Emulator
                 new byte[256 * 240 * 3],
             };
             bufferPriority = new bool[256 * 240];
+
+            if (File.Exists("ppu_trace.log"))
+                File.Delete("ppu_trace.log");
+            traceFile = new StreamWriter(File.OpenWrite("ppu_trace.log"));
         }
 
         public void GetImage(Bitmap img)
@@ -130,16 +80,14 @@ namespace Yawnese.Emulator
         public void Reset()
         {
             cycles = 0;
-            scanline = 0;
+            scanline = -1;
             frameCount = 0;
             nmi = false;
             status = 0;
             control = 0;
             mask = 0;
             openBus = 0;
-
-            address.ResetLatch();
-            scroll.ResetLatch();
+            writeLatch = false;
         }
 
         public PpuResult Tick()
@@ -158,33 +106,72 @@ namespace Yawnese.Emulator
         {
             ++cycles;
 
+            if (IsRenderingEnabled)
+            {
+                if (cycles <= 256)
+                {
+                    LoadTile();
+
+                    if (cycles % 8 == 0)
+                        IncrementScrollX();
+                    if (cycles == 256)
+                        IncrementScrollY();
+
+                    if (scanline != -1)
+                    {
+                        DrawPixel();
+                        tileHighShift <<= 1;
+                        tileLowShift <<= 1;
+                    }
+                }
+                else if (cycles == 257)
+                {
+                    traceFile.Write(" t{0:X4} ", tmpAddress);
+                    address = (ushort)((address & ~0x041F) | (tmpAddress & 0x041F));
+                }
+                else if (cycles >= 280 && cycles <= 304 && scanline == -1)
+                {
+                    address = (ushort)((address & ~0x7BE0) | (tmpAddress & 0x7BE0));
+                }
+                else if ((cycles >= 321 && cycles <= 336))
+                {
+                    if (cycles == 328 || cycles == 336)
+                    {
+                        LoadTile();
+                        tileHighShift <<= 8;
+                        tileLowShift <<= 8;
+                        IncrementScrollX();
+                    }
+                    else
+                        LoadTile();
+                }
+
+            }
             if (cycles >= 257 && cycles <= 320)
             {
                 if (IsRenderingEnabled)
                     oamAddress = 0;
             }
-            else if (cycles == 339 && (frameCount & 1) == 1 && scanline == 262 && rom.header.ntsc)
+            else if (cycles == 339 && (frameCount & 1) == 1 && scanline == -1 && rom.header.ntsc)
             {
                 // Skip one cycle every odd frame for NTSC ROMs
                 cycles = 340;
             }
 
-            if (cycles == 1 && scanline == 261)
+            if (cycles == 1 && scanline == -1)
             {
                 status &= ~PpuStatus.Vblank;
                 nmi = false;
             }
 
-            if (cycles >= 341)
+            if (cycles == 341)
             {
-                status &= ~PpuStatus.SpriteHit;
+                status &= ~PpuStatus.Sprite0Hit;
 
-                RenderScanline();
-
-                cycles -= 341;
+                cycles = 0;
                 scanline += 1;
 
-                if (scanline == 241)
+                if (scanline == 240)
                 {
                     for (var i = 0; i < buffer[0].Length; ++i)
                         buffer[1][i] = buffer[0][i];
@@ -198,12 +185,13 @@ namespace Yawnese.Emulator
                     }
                 }
 
-                if (scanline == 262)
+                if (scanline == 261)
                 {
-                    scanline = 0;
-                    spriteHitThisFrame = false;
+                    scanline = -1;
+                    sprite0HitThisFrame = false;
 
                     frameCount++;
+                    traceFile.Flush();
                     return PpuResult.EndOfFrame;
                 }
                 return PpuResult.Scanline;
@@ -211,10 +199,44 @@ namespace Yawnese.Emulator
             return PpuResult.None;
         }
 
+        void IncrementScrollX()
+        {
+            var addr = address;
+            if ((addr & 0x001F) == 31)
+                addr = (ushort)((addr & ~0x001F) ^ 0x0400);
+            else
+                addr++;
+            address = addr;
+        }
+
+        void IncrementScrollY()
+        {
+            if ((address & 0x7000) != 0x7000)
+            {
+                address += 0x1000;
+            }
+            else
+            {
+                address &= 0x8FFF;
+                int y = (address & 0x03E0) >> 5;
+                if (y == 29)
+                {
+                    y = 0;
+                    address ^= 0x0800;
+                }
+                else if (y == 31)
+                    y = 0;
+                else
+                    y += 1;
+                address = (ushort)((address & ~0x03E0) | (y << 5));
+            }
+        }
+
         protected bool IsRenderingEnabled
         {
             get
             {
+                if (scanline >= 240) return false;
                 return mask.HasFlag(PpuMask.RenderBackground) || mask.HasFlag(PpuMask.RenderSprites);
             }
         }
@@ -245,7 +267,7 @@ namespace Yawnese.Emulator
                     result = ReadOamData();
                     break;
                 case 7:
-                    result = (byte)(ReadData() | ((address.address >> 8) == 0x3F ? openBus & 0b11000000 : 0));
+                    result = (byte)(ReadData() | ((address >> 8) == 0x3F ? openBus & 0b11000000 : 0));
                     break;
                 default:
                     throw new Exception(string.Format("Invalid PPU read address {0:X4}", addr));
@@ -274,10 +296,10 @@ namespace Yawnese.Emulator
                     WriteOamData(data);
                     break;
                 case 5:
-                    scroll.Write(data);
+                    WriteScroll(data);
                     break;
                 case 6:
-                    address.Write(data);
+                    WriteAddress(data);
                     break;
                 case 7:
                     WriteData(data);
@@ -289,6 +311,7 @@ namespace Yawnese.Emulator
         {
             var was_nmi_set = control.HasFlag(PpuControl.GenerateNMI);
             control = (PpuControl)data;
+            tmpAddress = (ushort)(((data & 0x3) << 10) | (tmpAddress & 0xF3FF));
             if (!was_nmi_set && control.HasFlag(PpuControl.GenerateNMI) && status.HasFlag(PpuStatus.Vblank))
             {
                 nmi = true;
@@ -313,19 +336,57 @@ namespace Yawnese.Emulator
             oamAddress = (byte)(oamAddress + 1);
         }
 
+        void WriteScroll(byte data)
+        {
+            if (writeLatch)
+            {
+                tmpAddress = (tmpAddress & ~0x73E0) | ((data & 0xF8) << 2) | ((data & 0x7) << 12);
+                traceFile.Write(" w{0:X2} ", data);
+            }
+            else
+            {
+                fineX = data & 0x7;
+                tmpAddress = (tmpAddress & 0xFFE0) | (data >> 3);
+                traceFile.Write(" W{0:X2} ", data);
+            }
+            writeLatch = !writeLatch;
+        }
+
+        public void WriteAddress(byte data)
+        {
+            if (writeLatch)
+            {
+                tmpAddress = (tmpAddress & 0xFF00) | data;
+                address = (ushort)tmpAddress;
+            }
+            else
+            {
+                tmpAddress = (ushort)(((data << 8) | (tmpAddress & 0xFF)) & 0x3FFF);
+            }
+            writeLatch = !writeLatch;
+        }
+
+        public void IncrementAddress()
+        {
+            if (control.HasFlag(PpuControl.VramAddIncrement))
+                address += 32;
+            else
+                address += 1;
+            address &= 0x3FFF;
+        }
+
         byte ReadStatus()
         {
             var data = (byte)status;
             status &= ~PpuStatus.Vblank;
-            scroll.ResetLatch();
-            address.ResetLatch();
+            writeLatch = false;
             return data;
         }
 
         byte ReadData()
         {
-            var addr = address.address;
-            address.Increment();
+            var addr = (ushort)(address & 0x3FFF);
+            IncrementAddress();
             switch (addr)
             {
                 case ushort a when (a <= 0x1FFF):
@@ -361,20 +422,20 @@ namespace Yawnese.Emulator
 
         void WriteData(byte data)
         {
-            var addr = address.address;
-            address.Increment();
+            var addr = (ushort)(address & 0x3FFF);
+            IncrementAddress();
 
             switch (addr)
             {
-                case ushort a when (a <= 0x1FFF):
+                case var a when (a <= 0x1FFF):
                     rom.mapper.ChrWrite(addr, data);
                     break;
 
-                case ushort a when (a <= 0x2FFF):
+                case var a when (a <= 0x2FFF):
                     vram[MirrorVramAddr(addr)] = data;
                     break;
 
-                case ushort a when (a <= 0x3FFF):
+                case var a when (a <= 0x3FFF):
                     switch (addr & 0x1F)
                     {
                         case 0x10:
@@ -397,23 +458,19 @@ namespace Yawnese.Emulator
 
         ushort MirrorVramAddr(ushort addr)
         {
-            var name_table = ((addr & 0x2fff) - 0x2000) / 0x400;
-            switch (rom.mapper.Mirroring, name_table)
+            switch (rom.mapper.Mirroring)
             {
-                case (Mirroring.ScreenAOnly, _):
+                case (Mirroring.ScreenAOnly):
                     return (ushort)(addr & 0x23FF);
 
-                case (Mirroring.ScreenBOnly, _):
+                case (Mirroring.ScreenBOnly):
                     return (ushort)((addr & 0x23FF) | 0x0400);
 
-                case (Mirroring.Vertical, 2):
-                case (Mirroring.Vertical, 3):
-                case (Mirroring.Horizontal, 3):
+                case (Mirroring.Vertical):
                     return (ushort)(addr & 0x27FF);
 
-                case (Mirroring.Horizontal, 1):
-                case (Mirroring.Horizontal, 2):
-                    return (ushort)(addr & 0x2CFF);
+                case (Mirroring.Horizontal):
+                    return (ushort)(((addr / 2) & 0x0400) + (addr & 0x23FF));
 
                 default:
                     return addr;

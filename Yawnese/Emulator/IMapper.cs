@@ -7,6 +7,9 @@ namespace Yawnese.Emulator
         byte PrgRead(ushort addr);
         void PrgWrite(ushort addr, byte data);
 
+        void PpuRise();
+        bool HasInterrupt();
+
         Mirroring Mirroring { get; }
     }
 }

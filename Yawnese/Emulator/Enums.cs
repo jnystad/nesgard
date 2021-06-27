@@ -73,7 +73,7 @@ namespace Yawnese.Emulator
     public enum PpuStatus
     {
         SpriteOverflow = 0b00100000,
-        SpriteHit = 0b01000000,
+        Sprite0Hit = 0b01000000,
         Vblank = 0b10000000,
     }
 }

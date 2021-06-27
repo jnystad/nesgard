@@ -144,6 +144,7 @@ namespace Yawnese.Emulator
                 case 0: return new NROM(this);
                 case 1: return new MMC1(this);
                 case 2: return new UxROM(this);
+                case 4: return new MMC3(this);
                 case 66: return new GxROM(this);
 
                 default:

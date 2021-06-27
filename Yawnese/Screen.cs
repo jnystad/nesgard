@@ -148,6 +148,7 @@ namespace Yawnese
             }
             catch (Exception ex)
             {
+                Console.WriteLine(ex.ToString());
                 MessageBox.Show(ex.Message, "Could not load NES rom", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }

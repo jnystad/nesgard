@@ -8,6 +8,7 @@ namespace Yawnese.Emulator
         protected byte[] chrRom;
 
         protected bool isChrRam = false;
+        protected bool interrupt = false;
 
         public Mirroring Mirroring { get; protected set; }
 
@@ -45,6 +46,15 @@ namespace Yawnese.Emulator
         public virtual void PrgWrite(ushort addr, byte data)
         {
             throw new Exception("Attempted to write PRG ROM");
+        }
+
+        public virtual void PpuRise() { }
+
+        public virtual bool HasInterrupt()
+        {
+            var result = interrupt;
+            interrupt = false;
+            return result;
         }
     }
 }

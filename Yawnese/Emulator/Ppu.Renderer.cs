@@ -1,3 +1,4 @@
+using System;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.CompilerServices;
@@ -9,185 +10,197 @@ namespace Yawnese.Emulator
     {
         private byte[] palette = new byte[4];
 
-        void RenderScanline()
+        void DrawPixel()
         {
             if (scanline >= 240) return;
 
+            int color = 0;
+
             if (mask.HasFlag(PpuMask.RenderBackground))
             {
-                int nameTable = (control.HasFlag(PpuControl.NameTable2) ? 2 : 0) + (control.HasFlag(PpuControl.NameTable1) ? 1 : 0);
-                int secondaryNameTable = 0;
-                int bank = control.HasFlag(PpuControl.BgPatternAddr) ? 0x1000 : 0;
+                int nameTable = (address & 0x0C00) >> 10;
 
-                switch ((nameTable, rom.mapper.Mirroring))
-                {
-                    case (_, Mirroring.ScreenAOnly):
-                        nameTable = 0;
-                        secondaryNameTable = 0;
-                        break;
-
-                    case (_, Mirroring.ScreenBOnly):
-                        nameTable = 1;
-                        secondaryNameTable = 1;
-                        break;
-
-                    case (0, _):
-                    case (1, Mirroring.Horizontal):
-                    case (2, Mirroring.Vertical):
-                        nameTable = 0;
-                        secondaryNameTable = 1;
-                        break;
-
-                    case (1, Mirroring.Vertical):
-                    case (2, Mirroring.Horizontal):
-                    case (3, _):
-                        nameTable = 1;
-                        secondaryNameTable = 0;
-                        break;
-                }
-
-                for (int x = 0; x < 256; ++x)
-                {
-                    if (x < 8 && !mask.HasFlag(PpuMask.RenderBackgroundColumn1))
-                        continue;
-
-                    if (scroll.scroll_y == 0)
-                    {
-                        if (x < 256 - scroll.scroll_x)
-                            RenderBackground(nameTable, bank, x + scroll.scroll_x, scanline, -scroll.scroll_x, 0);
-                        else
-                            RenderBackground(secondaryNameTable, bank, x + scroll.scroll_x - 256, scanline, 256 - scroll.scroll_x, 0);
-                    }
-                    else
-                    {
-                        if (scanline < 240 - scroll.scroll_y)
-                            RenderBackground(nameTable, bank, x, scanline + scroll.scroll_y, 0, -scroll.scroll_y);
-                        else
-                            RenderBackground(secondaryNameTable, bank, x, scanline + scroll.scroll_y - 240, 0, 240 - scroll.scroll_y);
-                    }
-                }
+                if (cycles > 8 || mask.HasFlag(PpuMask.RenderBackgroundColumn1))
+                    color = GetBgPixel(fineX);
             }
+
 
             if (mask.HasFlag(PpuMask.RenderSprites))
             {
                 int bank = control.HasFlag(PpuControl.SpritePatternAddr) ? 0x1000 : 0;
-                for (var i = 252; i >= 0; i -= 4)
-                {
-                    RenderSprite(bank, i, scanline);
-                }
+
+                if (cycles == 1)
+                    LoadSprites(bank);
+
+                var sprite = GetSpriteColor(color);
+                if (sprite != 0)
+                    color = sprite;
+            }
+
+            var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
+            var rgb = (byte)(vram[0x3F00 + color] & m);
+
+            SetPixel(cycles - 1, scanline, GetColor(rgb), false);
+        }
+
+        struct Tile
+        {
+            public byte highByte;
+            public byte lowByte;
+            public byte paletteOffset;
+        }
+
+        Tile prevTile;
+        Tile currentTile;
+        Tile nextTile;
+
+        int tileHighShift;
+        int tileLowShift;
+
+        void LoadTile()
+        {
+            switch (cycles & 0x7)
+            {
+                case 1:
+                    prevTile = currentTile;
+                    currentTile = nextTile;
+
+                    tileHighShift |= currentTile.highByte;
+                    tileLowShift |= currentTile.lowByte;
+
+                    var bank = control.HasFlag(PpuControl.BgPatternAddr) ? 0x1000 : 0;
+                    var tileIdx = vram[MirrorVramAddr((ushort)(0x2000 | (address & 0xFFF)))];
+                    var tileAddr = (ushort)(bank | (tileIdx << 4) | (address >> 12));
+                    nextTile = new Tile
+                    {
+                        lowByte = rom.mapper.ChrRead(tileAddr),
+                        highByte = rom.mapper.ChrRead((ushort)(tileAddr + 8))
+                    };
+
+                    if (frameCount < 34)
+                    {
+                        if (cycles == 1)
+                            traceFile.Write("\n{0}: ", scanline);
+                        traceFile.Write("{0:X4} ", address);
+                    }
+
+                    break;
+
+                case 3:
+                    nextTile.paletteOffset = PaletteOffset();
+                    break;
             }
         }
 
-        void RenderBackground(int nameTable, int bank, int x, int y, int offsetX, int offsetY)
+        byte PaletteOffset()
         {
-            int row = y / 8;
-            int col = x / 8;
-
-            var tile = vram[0x2000 + nameTable * 0x400 + row * 32 + col];
-            BackgroundPalette(nameTable, col, row, ref palette);
-
-            var offset = y % 8;
-            var lower = rom.mapper.ChrRead((ushort)(bank + tile * 16 + offset));
-            var upper = rom.mapper.ChrRead((ushort)(bank + tile * 16 + offset + 8));
-
-            var shift = 7 - (x % 8);
-            var b1 = (lower >> shift) & 1;
-            var b2 = (upper >> shift) & 1;
-            var value = (b2 << 1) | b1;
-
-            var rgb = GetColor(palette[value]);
-            SetPixel(offsetX + x, offsetY + y, rgb, value != 0);
+            var shift = ((address >> 4) & 0x04) | (address & 0x02);
+            var b = 0x23C0 | (address & 0x0C00) | ((address >> 4) & 0x38) | ((address >> 2) & 0x07);
+            return (byte)(((vram[MirrorVramAddr((ushort)b)] >> shift) & 0x3) << 2);
         }
 
-        void RenderSprite(int bank, int i, int scanline)
+        int GetBgPixel(int x)
+        {
+            var value = (((tileLowShift << x) & 0x8000) >> 15) | (((tileHighShift << x) & 0x8000) >> 14);
+            return value == 0 ? 0 : ((x + ((cycles - 1) & 0x7) < 8) ? prevTile : currentTile).paletteOffset + value;
+        }
+
+        struct Sprite
+        {
+            public bool isZero;
+            public byte x;
+            public byte y;
+            public bool flipH;
+            public bool behind;
+            public int paletteOffset;
+            public byte lower;
+            public byte upper;
+        }
+
+        Sprite[] sprites = new Sprite[8];
+        int spriteCount = 0;
+
+        void LoadSprites(int bank)
         {
             var largeSprites = control.HasFlag(PpuControl.SpriteSize);
-
-            var tileAttr = oamData[i + 2];
-            var tileIdx = oamData[i + 1];
-            var tileY = oamData[i];
-            var tileX = oamData[i + 3];
-
-            var flipH = (tileAttr & 0x40) != 0;
-            var flipV = (tileAttr & 0x80) != 0;
-            var behind = (tileAttr & 0x20) != 0;
-
-            if (tileY > scanline || tileY + (largeSprites ? 16 : 8) <= scanline)
-                return;
-
-            var paletteIdx = tileAttr & 0b11;
-            SpritePalette(paletteIdx, ref palette);
-
-            var y = scanline - tileY;
-            if (flipV)
-                y = (largeSprites ? 15 : 7) - y;
-
-            var offset = 0;
-            if (largeSprites)
-                offset = (((tileIdx & 1) == 0 ? 0 : 0x1000) | ((tileIdx & 0xFE) << 4)) + (y >= 8 ? y + 8 : y);
-            else
-                offset = (bank | (tileIdx << 4)) + y;
-
-            var lower = rom.mapper.ChrRead((ushort)offset);
-            var upper = rom.mapper.ChrRead((ushort)(offset + 8));
-
-            for (var x = 7; x >= 0; --x)
+            var spriteIdx = 0;
+            for (var i = 0; i < 256 && spriteIdx < 8; i += 4)
             {
-                var b1 = lower & 1;
-                var b2 = upper & 1;
-                lower >>= 1;
-                upper >>= 1;
+                var tileY = (byte)(oamData[i] + 1);
 
-                var renderX = tileX + (flipH ? 7 - x : x);
+                if (tileY > scanline || tileY + (largeSprites ? 16 : 8) <= scanline)
+                    continue;
 
-                if (b1 + b2 == 0) continue;
-                int rgb = GetColor(palette[(b2 << 1) | b1]);
+                var tileX = oamData[i + 3];
+                var tileAttr = oamData[i + 2];
+                var tileIdx = oamData[i + 1];
 
-                if (!spriteHitThisFrame && i == 0 && mask.HasFlag(PpuMask.RenderBackground) && (renderX > 7 || mask.HasFlag(PpuMask.RenderBackgroundColumn1)) && renderX < 255)
+                var flipV = (tileAttr & 0x80) != 0;
+
+                var y = scanline - tileY;
+                if (flipV)
+                    y = (largeSprites ? 15 : 7) - y;
+
+                var offset = 0;
+                if (largeSprites)
+                    offset = (((tileIdx & 1) == 0 ? 0 : 0x1000) | ((tileIdx & 0xFE) << 4)) + (y >= 8 ? y + 8 : y);
+                else
+                    offset = (bank | (tileIdx << 4)) + y;
+
+                sprites[spriteIdx] = new Sprite
                 {
-                    status |= PpuStatus.SpriteHit;
-                    spriteHitThisFrame = true;
+                    isZero = i == 0,
+                    x = tileX,
+                    y = tileY,
+                    flipH = (tileAttr & 0x40) != 0,
+                    behind = (tileAttr & 0x20) != 0,
+                    paletteOffset = 0x10 + (tileAttr & 0b11) * 4,
+                    lower = rom.mapper.ChrRead((ushort)offset),
+                    upper = rom.mapper.ChrRead((ushort)(offset + 8)),
+                };
+
+                spriteIdx++;
+
+                if (spriteIdx == 8)
+                    break;
+            }
+            spriteCount = spriteIdx;
+        }
+
+        int GetSpriteColor(int bg)
+        {
+            var largeSprites = control.HasFlag(PpuControl.SpriteSize);
+            for (var i = 0; i < spriteCount; ++i)
+            {
+                var sprite = sprites[i];
+                var x = cycles - sprite.x - 1;
+
+                if (x < 0 || x > 7)
+                    continue;
+
+                if (sprite.flipH)
+                    x = 7 - x;
+
+                var b1 = (sprite.lower >> (7 - x)) & 1;
+                var b2 = (sprite.upper >> (7 - x)) & 1;
+                if (b1 + b2 == 0)
+                    continue;
+
+                var rgb = (b2 << 1) | b1;
+
+                if (!sprite0HitThisFrame && sprite.isZero && mask.HasFlag(PpuMask.RenderBackground) && (cycles > 8 || mask.HasFlag(PpuMask.RenderBackgroundColumn1)) && cycles < 256)
+                {
+                    traceFile.Write(" z ");
+                    status |= PpuStatus.Sprite0Hit;
+                    sprite0HitThisFrame = true;
                 }
 
-                SetPixel(renderX, scanline, rgb, !behind);
-            }
-        }
+                if (rgb == 0 || (bg != 0 && sprite.behind))
+                    return bg;
 
-        void SpritePalette(int paletteIdx, ref byte[] palette)
-        {
-            var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
-            var idx = 0x3F11 + paletteIdx * 4;
-            palette[0] = 0;
-            palette[1] = ((byte)(vram[idx] & m));
-            palette[2] = ((byte)(vram[idx + 1] & m));
-            palette[3] = ((byte)(vram[idx + 2] & m));
-        }
-
-        void BackgroundPalette(int nameTable, int column, int row, ref byte[] palette)
-        {
-            var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
-            var attr = vram[0x23C0 + nameTable * 0x400 + row / 4 * 8 + column / 4];
-            int select = 0;
-            switch (row % 4 / 2, column % 4 / 2)
-            {
-                case (0, 0):
-                    select = attr & 0b11;
-                    break;
-                case (0, 1):
-                    select = (attr >> 2) & 0b11;
-                    break;
-                case (1, 0):
-                    select = (attr >> 4) & 0b11;
-                    break;
-                case (1, 1):
-                    select = (attr >> 6) & 0b11;
-                    break;
+                return sprite.paletteOffset + rgb;
             }
-            var idx = 0x3F01 + select * 4;
-            palette[0] = ((byte)(vram[0x3F00] & m));
-            palette[1] = ((byte)(vram[idx] & m));
-            palette[2] = ((byte)(vram[idx + 1] & m));
-            palette[3] = ((byte)(vram[idx + 2] & m));
+            return 0;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -224,6 +237,33 @@ namespace Yawnese.Emulator
             buffer[0][offset + 2] = (byte)(color >> 16);
 
             bufferPriority[y * 256 + x] = priority;
+        }
+
+        void BackgroundPalette(int nameTable, int column, int row, ref byte[] palette)
+        {
+            var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
+            var attr = vram[0x23C0 + nameTable * 0x400 + row / 4 * 8 + column / 4];
+            int select = 0;
+            switch (row % 4 / 2, column % 4 / 2)
+            {
+                case (0, 0):
+                    select = attr & 0b11;
+                    break;
+                case (0, 1):
+                    select = (attr >> 2) & 0b11;
+                    break;
+                case (1, 0):
+                    select = (attr >> 4) & 0b11;
+                    break;
+                case (1, 1):
+                    select = (attr >> 6) & 0b11;
+                    break;
+            }
+            var idx = 0x3F01 + select * 4;
+            palette[0] = ((byte)(vram[0x3F00] & m));
+            palette[1] = ((byte)(vram[idx] & m));
+            palette[2] = ((byte)(vram[idx + 1] & m));
+            palette[3] = ((byte)(vram[idx + 2] & m));
         }
 
         public void GetBackgroundBuffers(Bitmap img)
@@ -304,7 +344,7 @@ namespace Yawnese.Emulator
             int nameTable = (control.HasFlag(PpuControl.NameTable2) ? 2 : 0) + (control.HasFlag(PpuControl.NameTable1) ? 1 : 0);
             return string.Format(
                 "Control: {0:X2}, Mask: {1:X2}, Scroll: {2},{3}, Name table: {4}, Mirror: {5}",
-                (int)control, (int)mask, scroll.scroll_x, scroll.scroll_y, nameTable, rom.mapper.Mirroring
+                (int)control, (int)mask, fineX, 0, nameTable, rom.mapper.Mirroring
             );
         }
 
