@@ -1,12 +1,10 @@
 using System;
 
-namespace Yawnese.Emulator.Mappers
+namespace NESgard.Emulator.Mappers
 {
-    public class UxROM : BaseMapper
+    public class NROM : BaseMapper
     {
-        int prgBankOffset;
-
-        public UxROM(Cartridge cartridge) : base(cartridge) { }
+        public NROM(Cartridge cartridge) : base(cartridge) { }
 
         public override byte PrgRead(ushort addr)
         {
@@ -14,7 +12,7 @@ namespace Yawnese.Emulator.Mappers
             {
                 case var a when (a >= 0x8000 && a <= 0xBFFF):
                     {
-                        var offset = prgBankOffset + addr - 0x8000;
+                        var offset = addr - 0x8000;
                         return prgRom[offset];
                     }
 
@@ -27,11 +25,6 @@ namespace Yawnese.Emulator.Mappers
                 default:
                     throw new Exception("Read invalid PRG ROM address");
             }
-        }
-
-        public override void PrgWrite(ushort addr, byte data)
-        {
-            prgBankOffset = (addr & 0b111) * 0x4000;
         }
     }
 }

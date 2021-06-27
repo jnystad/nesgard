@@ -1,9 +1,9 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
-using Yawnese.Emulator;
+using NESgard.Emulator;
 
-namespace Yawnese
+namespace NESgard.WinForms
 {
     public partial class PpuNameTableViewer : Form
     {

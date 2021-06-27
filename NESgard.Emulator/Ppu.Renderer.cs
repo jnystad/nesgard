@@ -4,7 +4,7 @@ using System.Drawing.Imaging;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace Yawnese.Emulator
+namespace NESgard.Emulator
 {
     partial class Ppu
     {

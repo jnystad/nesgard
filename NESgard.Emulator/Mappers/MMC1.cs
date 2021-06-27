@@ -1,6 +1,6 @@
 using System;
 
-namespace Yawnese.Emulator.Mappers
+namespace NESgard.Emulator.Mappers
 {
     public class MMC1 : BaseMapper
     {

@@ -1,6 +1,6 @@
 using System;
 
-namespace Yawnese.Emulator
+namespace NESgard.Emulator
 {
     public class Bus
     {

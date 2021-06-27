@@ -8,9 +8,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using XInput.Wrapper;
-using Yawnese.Emulator;
+using NESgard.Emulator;
 
-namespace Yawnese
+namespace NESgard.WinForms
 {
     public partial class Screen : Form
     {

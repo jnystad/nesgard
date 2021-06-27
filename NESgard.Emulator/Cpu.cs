@@ -2,7 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 
-namespace Yawnese.Emulator
+namespace NESgard.Emulator
 {
     public partial class Cpu
     {

@@ -1,9 +1,9 @@
 using System;
 using System.IO;
 using System.Text;
-using Yawnese.Emulator.Mappers;
+using NESgard.Emulator.Mappers;
 
-namespace Yawnese.Emulator
+namespace NESgard.Emulator
 {
     public class Cartridge
     {

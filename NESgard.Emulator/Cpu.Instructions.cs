@@ -1,4 +1,4 @@
-namespace Yawnese.Emulator
+namespace NESgard.Emulator
 {
     partial class Cpu
     {

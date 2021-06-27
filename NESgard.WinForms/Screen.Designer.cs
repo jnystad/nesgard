@@ -1,6 +1,6 @@
 ﻿using System.Drawing;
 
-namespace Yawnese
+namespace NESgard.WinForms
 {
     partial class Screen
     {
@@ -33,7 +33,7 @@ namespace Yawnese
             this.components = new System.ComponentModel.Container();
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(256 * 2, 240 * 2 + 24);
-            this.Text = "Yawnese";
+            this.Text = "NESgard";
             this.BackColor = Color.Black;
         }
 

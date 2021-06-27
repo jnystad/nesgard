@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 
-namespace Yawnese.Emulator
+namespace NESgard.Emulator
 {
     public partial class Ppu
     {

@@ -1,4 +1,4 @@
-namespace Yawnese.Emulator
+namespace NESgard.Emulator
 {
     public interface IMapper
     {

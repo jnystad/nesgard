@@ -1,22 +1,26 @@
 using System;
-using System.Linq;
 
-namespace Yawnese.Emulator.Mappers
+namespace NESgard.Emulator.Mappers
 {
-    public class GxROM : BaseMapper
+    public class UxROM : BaseMapper
     {
         int prgBankOffset;
-        int chrBankOffset;
 
-        public GxROM(Cartridge cartridge) : base(cartridge) { }
+        public UxROM(Cartridge cartridge) : base(cartridge) { }
 
         public override byte PrgRead(ushort addr)
         {
             switch (addr)
             {
-                case var a when (a >= 0x8000 && a <= 0xFFFF):
+                case var a when (a >= 0x8000 && a <= 0xBFFF):
                     {
                         var offset = prgBankOffset + addr - 0x8000;
+                        return prgRom[offset];
+                    }
+
+                case var a when (a >= 0xC000 && a <= 0xFFFF):
+                    {
+                        var offset = (prgRom.Length - 0x4000) + addr - 0xC000;
                         return prgRom[offset];
                     }
 
@@ -27,13 +31,7 @@ namespace Yawnese.Emulator.Mappers
 
         public override void PrgWrite(ushort addr, byte data)
         {
-            chrBankOffset = (addr & 0b11) * 0x2000;
-            prgBankOffset = ((addr >> 4) & 0b11) * 0x8000;
-        }
-
-        public override byte ChrRead(ushort addr)
-        {
-            return chrRom[chrBankOffset + addr];
+            prgBankOffset = (addr & 0b111) * 0x4000;
         }
     }
 }

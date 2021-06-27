@@ -3,7 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 15
 VisualStudioVersion = 15.0.26124.0
 MinimumVisualStudioVersion = 15.0.26124.0
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Yawnese", "Yawnese\Yawnese.csproj", "{862D4830-6C7E-4997-8994-89DE5BAECE09}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NESgard", "NESgard.WinForms\NESgard.WinForms.csproj", "{862D4830-6C7E-4997-8994-89DE5BAECE09}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NESgard.Emulator", "NESgard.Emulator\NESgard.Emulator.csproj", "{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -30,5 +32,17 @@ Global
 		{862D4830-6C7E-4997-8994-89DE5BAECE09}.Release|x64.Build.0 = Release|Any CPU
 		{862D4830-6C7E-4997-8994-89DE5BAECE09}.Release|x86.ActiveCfg = Release|Any CPU
 		{862D4830-6C7E-4997-8994-89DE5BAECE09}.Release|x86.Build.0 = Release|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Debug|x64.Build.0 = Debug|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Debug|x86.Build.0 = Debug|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|x64.ActiveCfg = Release|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|x64.Build.0 = Release|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|x86.ActiveCfg = Release|Any CPU
+		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
