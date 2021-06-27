@@ -1,18 +1,15 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
-using System.IO;
 using System.Runtime.InteropServices;
 
 namespace Yawnese.Emulator
 {
     public partial class Ppu
     {
-        StreamWriter traceFile;
-
         Cartridge rom;
 
-        public byte[] vram;
+        byte[] vram;
 
         byte read_buffer;
 
@@ -45,8 +42,7 @@ namespace Yawnese.Emulator
         public ushort address;
 
         private byte[][] buffer;
-
-        private bool[] bufferPriority;
+        private int currentBuffer;
 
         private byte openBus;
 
@@ -62,16 +58,11 @@ namespace Yawnese.Emulator
                 new byte[256 * 240 * 3],
                 new byte[256 * 240 * 3],
             };
-            bufferPriority = new bool[256 * 240];
-
-            if (File.Exists("ppu_trace.log"))
-                File.Delete("ppu_trace.log");
-            traceFile = new StreamWriter(File.OpenWrite("ppu_trace.log"));
         }
 
         public void GetImage(Bitmap img)
         {
-            var data = buffer[1];
+            var data = buffer[(currentBuffer + 1) % 2];
             var imgLock = img.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
             Marshal.Copy(data, 0, imgLock.Scan0, data.Length);
             img.UnlockBits(imgLock);
@@ -126,7 +117,6 @@ namespace Yawnese.Emulator
                 }
                 else if (cycles == 257)
                 {
-                    traceFile.Write(" t{0:X4} ", tmpAddress);
                     address = (ushort)((address & ~0x041F) | (tmpAddress & 0x041F));
                 }
                 else if (cycles >= 280 && cycles <= 304 && scanline == -1)
@@ -173,10 +163,7 @@ namespace Yawnese.Emulator
 
                 if (scanline == 240)
                 {
-                    for (var i = 0; i < buffer[0].Length; ++i)
-                        buffer[1][i] = buffer[0][i];
-                    for (var i = 0; i < bufferPriority.Length; ++i)
-                        bufferPriority[i] = false;
+                    currentBuffer = (currentBuffer + 1) % 2;
                     status |= PpuStatus.Vblank;
                     if (control.HasFlag(PpuControl.GenerateNMI))
                     {
@@ -191,7 +178,6 @@ namespace Yawnese.Emulator
                     sprite0HitThisFrame = false;
 
                     frameCount++;
-                    traceFile.Flush();
                     return PpuResult.EndOfFrame;
                 }
                 return PpuResult.Scanline;
@@ -341,13 +327,11 @@ namespace Yawnese.Emulator
             if (writeLatch)
             {
                 tmpAddress = (tmpAddress & ~0x73E0) | ((data & 0xF8) << 2) | ((data & 0x7) << 12);
-                traceFile.Write(" w{0:X2} ", data);
             }
             else
             {
                 fineX = data & 0x7;
                 tmpAddress = (tmpAddress & 0xFFE0) | (data >> 3);
-                traceFile.Write(" W{0:X2} ", data);
             }
             writeLatch = !writeLatch;
         }

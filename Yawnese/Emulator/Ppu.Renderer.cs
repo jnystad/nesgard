@@ -8,8 +8,6 @@ namespace Yawnese.Emulator
 {
     partial class Ppu
     {
-        private byte[] palette = new byte[4];
-
         void DrawPixel()
         {
             if (scanline >= 240) return;
@@ -40,7 +38,7 @@ namespace Yawnese.Emulator
             var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
             var rgb = (byte)(vram[0x3F00 + color] & m);
 
-            SetPixel(cycles - 1, scanline, GetColor(rgb), false);
+            SetPixel(cycles - 1, scanline, GetColor(rgb));
         }
 
         struct Tile
@@ -77,13 +75,6 @@ namespace Yawnese.Emulator
                         highByte = rom.mapper.ChrRead((ushort)(tileAddr + 8))
                     };
 
-                    if (frameCount < 34)
-                    {
-                        if (cycles == 1)
-                            traceFile.Write("\n{0}: ", scanline);
-                        traceFile.Write("{0:X4} ", address);
-                    }
-
                     break;
 
                 case 3:
@@ -107,12 +98,10 @@ namespace Yawnese.Emulator
 
         struct Sprite
         {
-            public bool isZero;
+            public byte flags;
             public byte x;
             public byte y;
-            public bool flipH;
-            public bool behind;
-            public int paletteOffset;
+            public byte paletteOffset;
             public byte lower;
             public byte upper;
         }
@@ -123,21 +112,21 @@ namespace Yawnese.Emulator
         void LoadSprites(int bank)
         {
             var largeSprites = control.HasFlag(PpuControl.SpriteSize);
-            var spriteIdx = 0;
-            for (var i = 0; i < 256 && spriteIdx < 8; i += 4)
+            spriteCount = 0;
+            for (var i = 0; i < 256 && spriteCount < 8; i += 4)
             {
-                var tileY = (byte)(oamData[i] + 1);
+                sprites[spriteCount].y = (byte)(oamData[i] + 1);
 
-                if (tileY > scanline || tileY + (largeSprites ? 16 : 8) <= scanline)
+                if (sprites[spriteCount].y > scanline || sprites[spriteCount].y + (largeSprites ? 16 : 8) <= scanline)
                     continue;
 
-                var tileX = oamData[i + 3];
+                sprites[spriteCount].x = oamData[i + 3];
                 var tileAttr = oamData[i + 2];
                 var tileIdx = oamData[i + 1];
 
                 var flipV = (tileAttr & 0x80) != 0;
 
-                var y = scanline - tileY;
+                var y = scanline - sprites[spriteCount].y;
                 if (flipV)
                     y = (largeSprites ? 15 : 7) - y;
 
@@ -147,24 +136,16 @@ namespace Yawnese.Emulator
                 else
                     offset = (bank | (tileIdx << 4)) + y;
 
-                sprites[spriteIdx] = new Sprite
-                {
-                    isZero = i == 0,
-                    x = tileX,
-                    y = tileY,
-                    flipH = (tileAttr & 0x40) != 0,
-                    behind = (tileAttr & 0x20) != 0,
-                    paletteOffset = 0x10 + (tileAttr & 0b11) * 4,
-                    lower = rom.mapper.ChrRead((ushort)offset),
-                    upper = rom.mapper.ChrRead((ushort)(offset + 8)),
-                };
+                sprites[spriteCount].flags = (byte)((i == 0 ? 1 : 0) | (tileAttr & 0x40) | (tileAttr & 0x20));
+                sprites[spriteCount].paletteOffset = (byte)(0x10 + (tileAttr & 0b11) * 4);
+                sprites[spriteCount].lower = rom.mapper.ChrRead((ushort)offset);
+                sprites[spriteCount].upper = rom.mapper.ChrRead((ushort)(offset + 8));
 
-                spriteIdx++;
+                spriteCount++;
 
-                if (spriteIdx == 8)
+                if (spriteCount == 8)
                     break;
             }
-            spriteCount = spriteIdx;
         }
 
         int GetSpriteColor(int bg)
@@ -172,71 +153,60 @@ namespace Yawnese.Emulator
             var largeSprites = control.HasFlag(PpuControl.SpriteSize);
             for (var i = 0; i < spriteCount; ++i)
             {
-                var sprite = sprites[i];
-                var x = cycles - sprite.x - 1;
+                var x = cycles - sprites[i].x - 1;
 
                 if (x < 0 || x > 7)
                     continue;
 
-                if (sprite.flipH)
+                if ((sprites[i].flags & 0x40) != 0)
                     x = 7 - x;
 
-                var b1 = (sprite.lower >> (7 - x)) & 1;
-                var b2 = (sprite.upper >> (7 - x)) & 1;
+                var b1 = (sprites[i].lower >> (7 - x)) & 1;
+                var b2 = (sprites[i].upper >> (7 - x)) & 1;
                 if (b1 + b2 == 0)
                     continue;
 
                 var rgb = (b2 << 1) | b1;
 
-                if (!sprite0HitThisFrame && sprite.isZero && mask.HasFlag(PpuMask.RenderBackground) && (cycles > 8 || mask.HasFlag(PpuMask.RenderBackgroundColumn1)) && cycles < 256)
+                if (!sprite0HitThisFrame && (sprites[i].flags & 1) == 1 && mask.HasFlag(PpuMask.RenderBackground) && (cycles > 8 || mask.HasFlag(PpuMask.RenderBackgroundColumn1)) && cycles < 256)
                 {
-                    traceFile.Write(" z ");
                     status |= PpuStatus.Sprite0Hit;
                     sprite0HitThisFrame = true;
                 }
 
-                if (rgb == 0 || (bg != 0 && sprite.behind))
+                if (rgb == 0 || (bg != 0 && (sprites[i].flags & 0x20) != 0))
                     return bg;
 
-                return sprite.paletteOffset + rgb;
+                return sprites[i].paletteOffset + rgb;
             }
-            return 0;
+            return bg;
         }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         int GetColor(byte paletteIdx)
         {
             var rgb = NES_PALETTE[paletteIdx];
-            if ((paletteIdx & 0xF) < 0xD)
+
+            // TODO Precalculate 8 palettes
+            var emphasis = ((byte)mask) & 0xE0;
+            if (emphasis != 0 && (paletteIdx & 0xF) < 0xD)
             {
-                var eR = mask.HasFlag(PpuMask.EmphasisR);
-                var eG = mask.HasFlag(PpuMask.EmphasisG);
-                var eB = mask.HasFlag(PpuMask.EmphasisB);
-                var any = eR || eG || eB;
-                var all = eR && eG && eB;
-                if (all || (any && !eB))
+                if (emphasis == 0xE0 || (emphasis & 0x80) == 0)
                     rgb = (rgb & 0xFFFF00) | ((rgb & 0xFF) * 5 / 6);
-                if (all || (any && !eG))
+                if (emphasis == 0xE0 || (emphasis & 0x40) == 0)
                     rgb = (rgb & 0xFF00FF) | (((rgb >> 8) & 0xFF) * 5 / 6) << 8;
-                if (all || (any && !eR))
+                if (emphasis == 0xE0 || (emphasis & 0x20) == 0)
                     rgb = (rgb & 0x00FFFF) | (((rgb >> 16) & 0xFF) * 5 / 6) << 16;
             }
+
             return rgb;
         }
 
-        void SetPixel(int x, int y, int color, bool priority)
+        void SetPixel(int x, int y, int color)
         {
-            if (x < 0 || x >= 256 || y < 0 || y >= 240) return;
-
             var offset = (y * 256 + x) * 3;
-
-            if (!priority && bufferPriority[y * 256 + x]) return;
-
-            buffer[0][offset + 0] = (byte)(color >> 0);
-            buffer[0][offset + 1] = (byte)(color >> 8);
-            buffer[0][offset + 2] = (byte)(color >> 16);
-
-            bufferPriority[y * 256 + x] = priority;
+            buffer[currentBuffer][offset + 0] = (byte)(color >> 0);
+            buffer[currentBuffer][offset + 1] = (byte)(color >> 8);
+            buffer[currentBuffer][offset + 2] = (byte)(color >> 16);
         }
 
         void BackgroundPalette(int nameTable, int column, int row, ref byte[] palette)
