@@ -8,22 +8,25 @@ namespace NESgard.Emulator
 {
     partial class Ppu
     {
+        bool largeSprites = false;
+
         void DrawPixel()
         {
             int color = 0;
+            largeSprites = (control & 0x20) != 0;
 
-            if (mask.HasFlag(PpuMask.RenderBackground))
+            if ((mask & 0x8) != 0)
             {
-                int nameTable = (address & 0x0C00) >> 10;
-
-                if (cycles > 8 || mask.HasFlag(PpuMask.RenderBackgroundColumn1))
-                    color = GetBgPixel(fineX);
+                if (cycles > 8 || (mask & 0x2) != 0)
+                {
+                    var value = (((tileLowShift << fineX) & 0x8000) >> 15) | (((tileHighShift << fineX) & 0x8000) >> 14);
+                    color = value == 0 ? 0 : ((fineX + ((cycles - 1) & 0x7) < 8) ? prevTile : currentTile).paletteOffset + value;
+                }
             }
 
-
-            if (mask.HasFlag(PpuMask.RenderSprites))
+            if ((mask & 0x10) != 0)
             {
-                int bank = control.HasFlag(PpuControl.SpritePatternAddr) ? 0x1000 : 0;
+                int bank = (control & 0x8) != 0 ? 0x1000 : 0;
 
                 if (cycles == 1)
                     LoadSprites(bank);
@@ -33,10 +36,10 @@ namespace NESgard.Emulator
                     color = sprite;
             }
 
-            var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
+            var m = (mask & 1) != 0 ? 0x30 : 0xFF;
             var rgb = (byte)(vram[0x3F00 + color] & m);
-
-            SetPixel(cycles - 1, scanline, GetColor(rgb));
+            var offset = (scanline << 8) | (cycles - 1);
+            buffer[currentBuffer][offset] = GetColor(rgb);
         }
 
         struct Tile
@@ -64,35 +67,21 @@ namespace NESgard.Emulator
                     tileHighShift |= currentTile.highByte;
                     tileLowShift |= currentTile.lowByte;
 
-                    var bank = control.HasFlag(PpuControl.BgPatternAddr) ? 0x1000 : 0;
+                    var bank = (control & 0x10) != 0 ? 0x1000 : 0;
                     var tileIdx = vram[MirrorVramAddr((ushort)(0x2000 | (address & 0xFFF)))];
                     var tileAddr = (ushort)(bank | (tileIdx << 4) | (address >> 12));
-                    nextTile = new Tile
-                    {
-                        lowByte = rom.mapper.ChrRead(tileAddr),
-                        highByte = rom.mapper.ChrRead((ushort)(tileAddr + 8))
-                    };
-
+                    nextTile.lowByte = rom.mapper.ChrRead(tileAddr);
+                    nextTile.highByte = rom.mapper.ChrRead((ushort)(tileAddr + 8));
                     break;
 
                 case 3:
-                    nextTile.paletteOffset = PaletteOffset();
+                    var shift = ((address >> 4) & 0x04) | (address & 0x02);
+                    var b = 0x23C0 | (address & 0x0C00) | ((address >> 4) & 0x38) | ((address >> 2) & 0x07);
+                    nextTile.paletteOffset = (byte)(((vram[MirrorVramAddr((ushort)b)] >> shift) & 0x3) << 2);
                     break;
             }
         }
 
-        byte PaletteOffset()
-        {
-            var shift = ((address >> 4) & 0x04) | (address & 0x02);
-            var b = 0x23C0 | (address & 0x0C00) | ((address >> 4) & 0x38) | ((address >> 2) & 0x07);
-            return (byte)(((vram[MirrorVramAddr((ushort)b)] >> shift) & 0x3) << 2);
-        }
-
-        int GetBgPixel(int x)
-        {
-            var value = (((tileLowShift << x) & 0x8000) >> 15) | (((tileHighShift << x) & 0x8000) >> 14);
-            return value == 0 ? 0 : ((x + ((cycles - 1) & 0x7) < 8) ? prevTile : currentTile).paletteOffset + value;
-        }
 
         struct Sprite
         {
@@ -109,8 +98,11 @@ namespace NESgard.Emulator
 
         void LoadSprites(int bank)
         {
-            var largeSprites = control.HasFlag(PpuControl.SpriteSize);
             spriteCount = 0;
+
+            byte tileAttr, tileIdx;
+            bool flipV;
+            int offset, y;
             for (var i = 0; i < 256 && spriteCount < 8; i += 4)
             {
                 sprites[spriteCount].y = (byte)(oamData[i] + 1);
@@ -119,16 +111,16 @@ namespace NESgard.Emulator
                     continue;
 
                 sprites[spriteCount].x = oamData[i + 3];
-                var tileAttr = oamData[i + 2];
-                var tileIdx = oamData[i + 1];
+                tileAttr = oamData[i + 2];
+                tileIdx = oamData[i + 1];
 
-                var flipV = (tileAttr & 0x80) != 0;
+                flipV = (tileAttr & 0x80) != 0;
 
-                var y = scanline - sprites[spriteCount].y;
+                y = scanline - sprites[spriteCount].y;
                 if (flipV)
                     y = (largeSprites ? 15 : 7) - y;
 
-                var offset = 0;
+                offset = 0;
                 if (largeSprites)
                     offset = ((tileIdx & 1) == 0 ? 0 : 0x1000) | ((tileIdx & 0xFE) << 4) | (y >= 8 ? y + 8 : y);
                 else
@@ -139,7 +131,7 @@ namespace NESgard.Emulator
                 sprites[spriteCount].lower = rom.mapper.ChrRead((ushort)offset);
                 sprites[spriteCount].upper = rom.mapper.ChrRead((ushort)(offset + 8));
 
-                spriteCount++;
+                ++spriteCount;
 
                 if (spriteCount == 8)
                     break;
@@ -148,34 +140,35 @@ namespace NESgard.Emulator
 
         int GetSpriteColor(int bg)
         {
-            var largeSprites = control.HasFlag(PpuControl.SpriteSize);
+            int x, rgb;
             for (var i = 0; i < spriteCount; ++i)
             {
-                var x = cycles - sprites[i].x - 1;
+                x = cycles - sprites[i].x - 1;
 
-                if ((x & 0x7) != x)
-                    continue;
-
-                if ((sprites[i].flags & 0x40) != 0)
-                    x = 7 - x;
-
-                var rgb = ((sprites[i].lower >> (7 - x)) & 1) | (((sprites[i].upper >> (7 - x)) & 1) << 1);
-                if (rgb == 0)
-                    continue;
-
-                if (!sprite0HitThisFrame && (sprites[i].flags & 1) == 1
-                    && mask.HasFlag(PpuMask.RenderBackground)
-                    && (cycles > 8 || mask.HasFlag(PpuMask.RenderBackgroundColumn1))
-                    && cycles < 256)
+                if ((x & 0x7) == x)
                 {
-                    status |= PpuStatus.Sprite0Hit;
-                    sprite0HitThisFrame = true;
+                    if ((sprites[i].flags & 0x40) != 0)
+                        x = 7 - x;
+
+                    rgb = ((sprites[i].lower >> (7 - x)) & 1) | (((sprites[i].upper >> (7 - x)) & 1) << 1);
+                    if (rgb != 0)
+                    {
+
+                        if (!sprite0HitThisFrame && (sprites[i].flags & 1) == 1
+                            && (mask & 0x8) != 0
+                            && (cycles > 8 || (mask & 0x2) != 0)
+                            && cycles < 256)
+                        {
+                            status |= PpuStatus.Sprite0Hit;
+                            sprite0HitThisFrame = true;
+                        }
+
+                        if (rgb == 0 || (bg != 0 && (sprites[i].flags & 0x20) != 0))
+                            return bg;
+
+                        return sprites[i].paletteOffset + rgb;
+                    }
                 }
-
-                if (rgb == 0 || (bg != 0 && (sprites[i].flags & 0x20) != 0))
-                    return bg;
-
-                return sprites[i].paletteOffset + rgb;
             }
             return bg;
         }
@@ -199,15 +192,9 @@ namespace NESgard.Emulator
             return rgb;
         }
 
-        void SetPixel(int x, int y, int color)
-        {
-            var offset = (y << 8) | x;
-            buffer[currentBuffer][offset] = color;
-        }
-
         void BackgroundPalette(int nameTable, int column, int row, ref byte[] palette)
         {
-            var m = mask.HasFlag(PpuMask.Greyscale) ? 0x30 : 0xFF;
+            var m = (mask & 0x1) != 0 ? 0x30 : 0xFF;
             var attr = vram[0x23C0 + nameTable * 0x400 + row / 4 * 8 + column / 4];
             int select = 0;
             switch (row % 4 / 2, column % 4 / 2)
@@ -238,7 +225,7 @@ namespace NESgard.Emulator
             int[] buffer = new int[bufferSize * 4];
             var palette = new byte[4];
             var rgbs = new int[4];
-            int bank = control.HasFlag(PpuControl.BgPatternAddr) ? 0x1000 : 0;
+            int bank = (control & 0x10) != 0 ? 0x1000 : 0;
 
             int rgb;
             byte tile, lower, upper;
@@ -312,7 +299,7 @@ namespace NESgard.Emulator
 
         public string GetStatusText()
         {
-            int nameTable = (control.HasFlag(PpuControl.NameTable2) ? 2 : 0) + (control.HasFlag(PpuControl.NameTable1) ? 1 : 0);
+            int nameTable = control & 0x3;
             return string.Format(
                 "Control: {0:X2}, Mask: {1:X2}, Scroll: {2},{3}, Name table: {4}, Mirror: {5}",
                 (int)control, (int)mask, frameScrollX, frameScrollY - 240, nameTable, rom.mapper.Mirroring

@@ -25,9 +25,9 @@ namespace NESgard.Emulator
 
         private bool sprite0HitThisFrame = false;
 
-        public PpuControl control;
+        public byte control;
 
-        public PpuMask mask;
+        public byte mask;
 
         public byte oamAddress;
 
@@ -98,8 +98,9 @@ namespace NESgard.Emulator
         protected PpuResult Cycle()
         {
             ++cycles;
+            var isRenderingEnabled = (scanline < 240) && ((mask & 0x8) != 0 || (mask & 0x10) != 0);
 
-            if (IsRenderingEnabled)
+            if (isRenderingEnabled)
             {
                 if (cycles <= 256)
                 {
@@ -147,7 +148,7 @@ namespace NESgard.Emulator
             }
             if (cycles >= 257 && cycles <= 320)
             {
-                if (IsRenderingEnabled)
+                if (isRenderingEnabled)
                     oamAddress = 0;
             }
             else if (cycles == 339 && (frameCount & 1) == 1 && scanline == -1 && rom.header.ntsc)
@@ -173,7 +174,7 @@ namespace NESgard.Emulator
                 {
                     currentBuffer = currentBuffer == 1 ? 0 : 1;
                     status |= PpuStatus.Vblank;
-                    if (control.HasFlag(PpuControl.GenerateNMI))
+                    if ((control & 0x80) != 0)
                     {
                         nmi = true;
                         return PpuResult.Nmi;
@@ -226,15 +227,6 @@ namespace NESgard.Emulator
             }
         }
 
-        protected bool IsRenderingEnabled
-        {
-            get
-            {
-                if (scanline >= 240) return false;
-                return mask.HasFlag(PpuMask.RenderBackground) || mask.HasFlag(PpuMask.RenderSprites);
-            }
-        }
-
         public bool PollNmi()
         {
             var result = nmi;
@@ -279,7 +271,7 @@ namespace NESgard.Emulator
                 case 0:
                     WriteControl(data); break;
                 case 1:
-                    mask = (PpuMask)data;
+                    mask = data;
                     break;
                 case 2:
                     throw new Exception(string.Format("Write read-only PPU address {0:X4}", addr));
@@ -303,10 +295,10 @@ namespace NESgard.Emulator
 
         void WriteControl(byte data)
         {
-            var was_nmi_set = control.HasFlag(PpuControl.GenerateNMI);
-            control = (PpuControl)data;
+            var was_nmi_set = (control & 0x80) != 0;
+            control = data;
             tmpAddress = (ushort)(((data & 0x3) << 10) | (tmpAddress & 0xF3FF));
-            if (!was_nmi_set && control.HasFlag(PpuControl.GenerateNMI) && status.HasFlag(PpuStatus.Vblank))
+            if (!was_nmi_set && (control & 0x80) != 0 && status.HasFlag(PpuStatus.Vblank))
             {
                 nmi = true;
             }
@@ -360,7 +352,7 @@ namespace NESgard.Emulator
 
         public void IncrementAddress()
         {
-            if (control.HasFlag(PpuControl.VramAddIncrement))
+            if ((control & 0x4) != 0)
                 address = (ushort)((address + 32) & 0x3FFF);
             else
                 address = (ushort)((address + 1) & 0x3FFF);

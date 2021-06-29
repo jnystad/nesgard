@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.26124.0
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30907.101
 MinimumVisualStudioVersion = 15.0.26124.0
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NESgard", "NESgard.WinForms\NESgard.WinForms.csproj", "{862D4830-6C7E-4997-8994-89DE5BAECE09}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NESgard.WinForms", "NESgard.WinForms\NESgard.WinForms.csproj", "{862D4830-6C7E-4997-8994-89DE5BAECE09}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NESgard.Emulator", "NESgard.Emulator\NESgard.Emulator.csproj", "{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}"
 EndProject
@@ -15,9 +15,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 		Release|x64 = Release|x64
 		Release|x86 = Release|x86
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{862D4830-6C7E-4997-8994-89DE5BAECE09}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -44,5 +41,11 @@ Global
 		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|x64.Build.0 = Release|Any CPU
 		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|x86.ActiveCfg = Release|Any CPU
 		{FE2EF531-FC19-42DC-835B-0CDF77E5E3DC}.Release|x86.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4B5217B0-16F5-4B6C-8E84-993766E690F6}
 	EndGlobalSection
 EndGlobal

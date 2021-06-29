@@ -142,6 +142,7 @@ namespace NESgard.WinForms
 
             if (cpuTask != null)
             {
+                pause = false;
                 exitCpu = true;
                 cpuTask.Wait();
                 cpuTask = null;

@@ -73,7 +73,7 @@ namespace NESgard.Emulator
             var i = 2;
             for (; i < bufferIdx - 1; i += 2)
             {
-                samples[(i >> 1) - 1] = (byte)((buffer[i - 2] + buffer[i - 1] + buffer[i] + buffer[i + 1]) * 25.0f);
+                samples[(i >> 1) - 1] = (byte)((buffer[i] + buffer[i + 1]) * 50.0f);
             }
             buffer[0] = buffer[i - 2];
             buffer[1] = buffer[i - 1];
