@@ -100,7 +100,7 @@ namespace NESgard.Emulator
                 while (bus.stallCycles > 0)
                 {
                     Tick();
-                    bus.stallCycles--;
+                    --bus.stallCycles;
                 }
 
                 if (bus.PollNMI())
@@ -446,7 +446,7 @@ namespace NESgard.Emulator
 
         void Tick()
         {
-            cycles += 1;
+            ++cycles;
             bus.Tick();
         }
 
@@ -480,7 +480,7 @@ namespace NESgard.Emulator
         byte Next()
         {
             var pc = registers.pc;
-            registers.pc += 1;
+            ++registers.pc;
             return Read(pc);
         }
 
@@ -528,7 +528,7 @@ namespace NESgard.Emulator
                 case Mode.Immediate:
                     {
                         var a = registers.pc;
-                        registers.pc += 1;
+                        ++registers.pc;
                         return a;
                     }
                 case Mode.Indirect:
@@ -595,7 +595,6 @@ namespace NESgard.Emulator
         {
             var addr = (ushort)(0x100 + registers.sp);
             Write(addr, value);
-            //trace!("Push {0:X2}}", value);
             if (registers.sp == 0)
             {
                 registers.sp = 0xFF;
@@ -614,18 +613,10 @@ namespace NESgard.Emulator
 
         byte Pop()
         {
-            if (registers.sp == 0xFF)
-            {
-                registers.sp = 0;
-            }
-            else
-            {
-                registers.sp += 1;
-            }
+            registers.sp = (byte)((registers.sp + 1) & 0xFF);
             Tick();
-            var addr = (ushort)(0x100 + registers.sp);
+            var addr = (ushort)(0x100 | registers.sp);
             var result = Read(addr);
-            //trace!("pop  {0:X2}}", result);
             return result;
         }
 
@@ -657,7 +648,7 @@ namespace NESgard.Emulator
 
         byte Carry()
         {
-            return registers.status.HasFlag(CpuStatus.Carry) ? (byte)CpuStatus.Carry : (byte)0;
+            return registers.status.HasFlag(CpuStatus.Carry) ? (byte)1 : (byte)0;
         }
 
         byte ReadOperand(Mode mode)
@@ -753,7 +744,7 @@ namespace NESgard.Emulator
 
         void brk()
         {
-            registers.pc += 1;
+            ++registers.pc;
             SetFlag(CpuStatus.InterruptDisable, true);
 
             var status = (byte)registers.status | (byte)CpuStatus.Break;
@@ -1162,6 +1153,7 @@ namespace NESgard.Emulator
             SetZeroNegativeFlags(registers.acc);
             Tick();
         }
+
         bool CrossBoundary(ushort addr, byte offset)
         {
             return (ushort)(addr & 0xFF00) != (ushort)((addr + offset) & 0xFF00);

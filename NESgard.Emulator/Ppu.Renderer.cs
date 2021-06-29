@@ -10,8 +10,6 @@ namespace NESgard.Emulator
     {
         void DrawPixel()
         {
-            if (scanline >= 240) return;
-
             int color = 0;
 
             if (mask.HasFlag(PpuMask.RenderBackground))
@@ -132,12 +130,12 @@ namespace NESgard.Emulator
 
                 var offset = 0;
                 if (largeSprites)
-                    offset = (((tileIdx & 1) == 0 ? 0 : 0x1000) | ((tileIdx & 0xFE) << 4)) + (y >= 8 ? y + 8 : y);
+                    offset = ((tileIdx & 1) == 0 ? 0 : 0x1000) | ((tileIdx & 0xFE) << 4) | (y >= 8 ? y + 8 : y);
                 else
-                    offset = (bank | (tileIdx << 4)) + y;
+                    offset = bank | (tileIdx << 4) | y;
 
                 sprites[spriteCount].flags = (byte)((i == 0 ? 1 : 0) | (tileAttr & 0x40) | (tileAttr & 0x20));
-                sprites[spriteCount].paletteOffset = (byte)(0x10 + (tileAttr & 0b11) * 4);
+                sprites[spriteCount].paletteOffset = (byte)(0x10 | ((tileAttr & 0b11) << 2));
                 sprites[spriteCount].lower = rom.mapper.ChrRead((ushort)offset);
                 sprites[spriteCount].upper = rom.mapper.ChrRead((ushort)(offset + 8));
 
@@ -155,20 +153,20 @@ namespace NESgard.Emulator
             {
                 var x = cycles - sprites[i].x - 1;
 
-                if (x < 0 || x > 7)
+                if ((x & 0x7) != x)
                     continue;
 
                 if ((sprites[i].flags & 0x40) != 0)
                     x = 7 - x;
 
-                var b1 = (sprites[i].lower >> (7 - x)) & 1;
-                var b2 = (sprites[i].upper >> (7 - x)) & 1;
-                if (b1 + b2 == 0)
+                var rgb = ((sprites[i].lower >> (7 - x)) & 1) | (((sprites[i].upper >> (7 - x)) & 1) << 1);
+                if (rgb == 0)
                     continue;
 
-                var rgb = (b2 << 1) | b1;
-
-                if (!sprite0HitThisFrame && (sprites[i].flags & 1) == 1 && mask.HasFlag(PpuMask.RenderBackground) && (cycles > 8 || mask.HasFlag(PpuMask.RenderBackgroundColumn1)) && cycles < 256)
+                if (!sprite0HitThisFrame && (sprites[i].flags & 1) == 1
+                    && mask.HasFlag(PpuMask.RenderBackground)
+                    && (cycles > 8 || mask.HasFlag(PpuMask.RenderBackgroundColumn1))
+                    && cycles < 256)
                 {
                     status |= PpuStatus.Sprite0Hit;
                     sprite0HitThisFrame = true;
@@ -203,10 +201,8 @@ namespace NESgard.Emulator
 
         void SetPixel(int x, int y, int color)
         {
-            var offset = (y * 256 + x) * 3;
-            buffer[currentBuffer][offset + 0] = (byte)(color >> 0);
-            buffer[currentBuffer][offset + 1] = (byte)(color >> 8);
-            buffer[currentBuffer][offset + 2] = (byte)(color >> 16);
+            var offset = (y << 8) | x;
+            buffer[currentBuffer][offset] = color;
         }
 
         void BackgroundPalette(int nameTable, int column, int row, ref byte[] palette)

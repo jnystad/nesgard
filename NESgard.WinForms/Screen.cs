@@ -8,7 +8,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using XInput.Wrapper;
+using NAudio.Wave;
 using NESgard.Emulator;
+using System.IO.Pipelines;
 
 namespace NESgard.WinForms
 {
@@ -36,9 +38,16 @@ namespace NESgard.WinForms
 
         Task gamepadTask;
 
+        Pipe wavePipe;
+        RawSourceWaveStream waveProvider;
+        IWavePlayer waveOut;
+
         public Screen()
         {
-            InitializeComponent();
+            Text = "NESgard";
+            AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            ClientSize = new System.Drawing.Size(256 * 2, 240 * 2 + 24);
+            BackColor = Color.Black;
 
             Activated += new EventHandler(HandleActivate);
             Deactivate += new EventHandler(HandleDeactivate);
@@ -52,6 +61,11 @@ namespace NESgard.WinForms
 
             KeyDown += new KeyEventHandler(this.HandleKeyDown);
             KeyUp += new KeyEventHandler(this.HandleKeyUp);
+
+            wavePipe = new Pipe();
+            waveProvider = new RawSourceWaveStream(wavePipe.Reader.AsStream(), new WaveFormat(48000, 1));
+            waveOut = new WaveOutEvent();
+            waveOut.Init(waveProvider);
 
             if (X.Available)
             {
@@ -106,6 +120,18 @@ namespace NESgard.WinForms
             BringToFront();
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            exitCpu = true;
+
+            waveOut.Dispose();
+            waveProvider.Dispose();
+            image.Dispose();
+            bitmap.Dispose();
+
+            base.Dispose(disposing);
+        }
+
         protected void LoadRom(object sender, EventArgs e)
         {
             if (ppuNameTableViewer != null)
@@ -124,6 +150,7 @@ namespace NESgard.WinForms
 
             if (cpu != null)
             {
+                waveOut.Stop();
                 cpu.Dispose();
                 cpu = null;
             }
@@ -167,19 +194,42 @@ namespace NESgard.WinForms
                     var fpsWatch = Stopwatch.StartNew();
                     while (true)
                     {
-                        if (exitCpu)
-                            break;
-
+                        var wasPlaying = waveOut.PlaybackState == PlaybackState.Playing;
                         while (pause || !isActive)
                         {
+                            waveOut.Pause();
                             fpsWatch.Stop();
                             Thread.Sleep(100);
                         }
+
+                        if (exitCpu)
+                            break;
+
+                        if (wasPlaying)
+                            waveOut.Play();
+
                         fpsWatch.Start();
                         var watch = Stopwatch.StartNew();
 
                         cpu.Run();
                         frameCount++;
+
+                        if (exitCpu)
+                            break;
+
+                        var samples = cpu.bus.apu.GetSamples();
+                        try
+                        {
+                            wavePipe.Writer.WriteAsync(samples);
+                            if (waveOut.PlaybackState == PlaybackState.Stopped)
+                            {
+                                waveOut.Play();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine(ex.ToString());
+                        }
 
                         Invalidate();
 

@@ -43,7 +43,7 @@ namespace NESgard.Emulator
 
         public ushort address;
 
-        private byte[][] buffer;
+        private int[][] buffer;
         private int currentBuffer;
 
         private byte openBus;
@@ -57,15 +57,15 @@ namespace NESgard.Emulator
 
             buffer = new[]
             {
-                new byte[256 * 240 * 3],
-                new byte[256 * 240 * 3],
+                new int[256 * 240],
+                new int[256 * 240],
             };
         }
 
         public void GetImage(Bitmap img)
         {
             var data = buffer[(currentBuffer + 1) % 2];
-            var imgLock = img.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            var imgLock = img.LockBits(new Rectangle(0, 0, img.Width, img.Height), ImageLockMode.WriteOnly, PixelFormat.Format32bppRgb);
             Marshal.Copy(data, 0, imgLock.Scan0, data.Length);
             img.UnlockBits(imgLock);
         }
@@ -105,7 +105,7 @@ namespace NESgard.Emulator
                 {
                     LoadTile();
 
-                    if (cycles % 8 == 0)
+                    if ((cycles & 0x7) == 0)
                         IncrementScrollX();
                     if (cycles == 256)
                         IncrementScrollY();
@@ -167,11 +167,11 @@ namespace NESgard.Emulator
                 status &= ~PpuStatus.Sprite0Hit;
 
                 cycles = 0;
-                scanline += 1;
+                ++scanline;
 
                 if (scanline == 240)
                 {
-                    currentBuffer = (currentBuffer + 1) % 2;
+                    currentBuffer = currentBuffer == 1 ? 0 : 1;
                     status |= PpuStatus.Vblank;
                     if (control.HasFlag(PpuControl.GenerateNMI))
                     {
@@ -199,7 +199,7 @@ namespace NESgard.Emulator
             if ((addr & 0x001F) == 31)
                 addr = (ushort)((addr & ~0x001F) ^ 0x0400);
             else
-                addr++;
+                ++addr;
             address = addr;
         }
 
@@ -221,7 +221,7 @@ namespace NESgard.Emulator
                 else if (y == 31)
                     y = 0;
                 else
-                    y += 1;
+                    ++y;
                 address = (ushort)((address & ~0x03E0) | (y << 5));
             }
         }
@@ -361,10 +361,9 @@ namespace NESgard.Emulator
         public void IncrementAddress()
         {
             if (control.HasFlag(PpuControl.VramAddIncrement))
-                address += 32;
+                address = (ushort)((address + 32) & 0x3FFF);
             else
-                address += 1;
-            address &= 0x3FFF;
+                address = (ushort)((address + 1) & 0x3FFF);
         }
 
         byte ReadStatus()
@@ -462,7 +461,7 @@ namespace NESgard.Emulator
                     return (ushort)(addr & 0x27FF);
 
                 case (Mirroring.Horizontal):
-                    return (ushort)(((addr / 2) & 0x0400) + (addr & 0x23FF));
+                    return (ushort)(((addr >> 1) & 0x0400) + (addr & 0x23FF));
 
                 default:
                     return addr;

@@ -6,6 +6,8 @@ namespace NESgard.Emulator
     {
         public Ppu ppu;
 
+        public Apu apu;
+
         public Cartridge rom;
 
         public IMapper mapper;
@@ -26,6 +28,7 @@ namespace NESgard.Emulator
             mapper = rom.mapper;
             ram = new byte[2048];
             ppu = new Ppu(rom);
+            apu = new Apu(this);
 
             controller1 = new Controller();
             controller2 = new Controller();
@@ -35,6 +38,7 @@ namespace NESgard.Emulator
         {
             endOfFrame = false;
             ppu.Reset();
+            apu.Reset();
         }
 
         public void Tick()
@@ -46,13 +50,18 @@ namespace NESgard.Emulator
                     endOfFrame = true;
                     break;
             }
+            apu.Tick();
         }
 
         public bool PollNMI() { return ppu.PollNmi(); }
 
         public bool HasInterrupt()
         {
-            return mapper.HasInterrupt();
+            if (mapper.HasInterrupt())
+                return true;
+            if (apu.HasInterrupt())
+                return true;
+            return false;
         }
 
         public byte Read(ushort addr)
@@ -67,7 +76,7 @@ namespace NESgard.Emulator
                     return ppu.Read(addr);
                 case var a when (a >= 0x4000 && a <= 0x4013):
                 case 0x4015:
-                    return 0; // apu.Read(addr);
+                    return apu.Read(addr);
                 case 0x4016:
                     return controller1.Read();
                 case 0x4017:
@@ -94,7 +103,7 @@ namespace NESgard.Emulator
                 case var a when (a >= 0x4000 && a <= 0x4013):
                 case 0x4015:
                 case 0x4017:
-                    // apu.Write(addr, data);
+                    apu.Write(addr, data);
                     break;
 
                 case 0x4014:

@@ -2,6 +2,26 @@ using System;
 
 namespace NESgard.Emulator
 {
+
+    [Flags]
+    public enum ApuFrameCounter
+    {
+        IrqDisable = 0b01000000,
+        Step = 0b10000000,
+    }
+
+    [Flags]
+    public enum ApuStatus
+    {
+        Pulse1 = 0b00000001,
+        Pulse2 = 0b00000010,
+        Triangle = 0b00000100,
+        Noise = 0b00001000,
+        Dmc = 0b00010000,
+        FrameIrq = 0b01000000,
+        DmcIrq = 0b10000000,
+    }
+
     [Flags]
     public enum ControllerButton
     {

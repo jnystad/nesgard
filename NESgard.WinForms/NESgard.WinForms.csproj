@@ -4,6 +4,11 @@
     <ProjectReference Include="..\NESgard.Emulator\NESgard.Emulator.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="NAudio.WinForms" Version="2.0.1" />
+    <PackageReference Include="System.IO.Pipelines" Version="5.0.1" />
+  </ItemGroup>
+
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net5.0-windows</TargetFramework>
