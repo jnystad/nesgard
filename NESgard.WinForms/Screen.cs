@@ -11,6 +11,9 @@ using XInput.Wrapper;
 using NAudio.Wave;
 using NESgard.Emulator;
 using System.IO.Pipelines;
+using System.IO;
+using System.Text.Json;
+using System.Collections.Generic;
 
 namespace NESgard.WinForms
 {
@@ -25,6 +28,7 @@ namespace NESgard.WinForms
         PictureBoxInterpolation image = new PictureBoxInterpolation();
 
         Bitmap bitmap;
+        Bitmap pauseBitmap;
 
         PpuNameTableViewer ppuNameTableViewer;
 
@@ -41,6 +45,15 @@ namespace NESgard.WinForms
         Pipe wavePipe;
         RawSourceWaveStream waveProvider;
         IWavePlayer waveOut;
+
+        public class Settings
+        {
+            public List<string> recentFiles { get; set; } = new List<string>();
+        }
+
+        Settings settings;
+
+        ToolStripMenuItem recentFilesMenu;
 
         public Screen()
         {
@@ -99,13 +112,17 @@ namespace NESgard.WinForms
                 }
             }
 
-            Console.WriteLine("Using gamepad {0}", gamepad != null);
+            Console.WriteLine("Using gamepad: {0}", gamepad != null);
 
             var menu = new MenuStrip();
             var fileMenu = new ToolStripMenuItem("File");
-            fileMenu.DropDownItems.Add(new ToolStripMenuItem("Open", null, new EventHandler(LoadRom)));
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("Open", null, new EventHandler(OpenRom), Keys.Control | Keys.O));
+            recentFilesMenu = new ToolStripMenuItem("Recent Files");
+            fileMenu.DropDownItems.Add(recentFilesMenu);
             fileMenu.DropDownItems.Add(new ToolStripSeparator());
-            fileMenu.DropDownItems.Add(new ToolStripMenuItem("Exit", null, new EventHandler(Exit)));
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("Reset", null, new EventHandler(Reset)));
+            fileMenu.DropDownItems.Add(new ToolStripSeparator());
+            fileMenu.DropDownItems.Add(new ToolStripMenuItem("Exit", null, new EventHandler(Exit), Keys.Control | Keys.W));
 
             var debugMenu = new ToolStripMenuItem("Debug");
             debugMenu.DropDownItems.Add(new ToolStripMenuItem("PPU Name Table Viewer", null, new EventHandler(TogglePpuNameTableViewer)));
@@ -114,10 +131,68 @@ namespace NESgard.WinForms
             menu.Items.Add(debugMenu);
             MainMenuStrip = menu;
 
+            LoadSettings();
+
             Controls.Add(menu);
 
             Focus();
             BringToFront();
+        }
+
+        protected void LoadRecentFiles()
+        {
+            recentFilesMenu.DropDownItems.Clear();
+            recentFilesMenu.Enabled = false;
+
+            if (settings.recentFiles.Count > 0)
+            {
+                recentFilesMenu.Enabled = true;
+                foreach (var file in settings.recentFiles)
+                {
+                    var item = new ToolStripMenuItem(Path.GetFileName(file), null, new EventHandler(OpenRecent), file);
+                    recentFilesMenu.DropDownItems.Add(item);
+                }
+            }
+        }
+
+        protected void LoadSettings()
+        {
+            var settingsFile = Path.Combine(Application.UserAppDataPath, "settings.json");
+            try
+            {
+                Console.WriteLine("Loading settings from: {0}", settingsFile);
+                using (var stream = File.OpenText(settingsFile))
+                {
+                    var json = stream.ReadToEnd();
+                    settings = JsonSerializer.Deserialize<Settings>(json);
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Could not load settings. Exception: {0}", ex);
+                settings = new Settings();
+            }
+
+            LoadRecentFiles();
+        }
+
+        protected void SaveSettings()
+        {
+            try
+            {
+                var settingsFile = Path.Combine(Application.UserAppDataPath, "settings.json");
+                Console.WriteLine("Writing settings to: {0}", settingsFile);
+
+                var json = JsonSerializer.Serialize(settings);
+                File.WriteAllText(settingsFile, json);
+                Console.WriteLine(json);
+
+                LoadRecentFiles();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Could not write settings. Exception: {0}", ex);
+            }
         }
 
         protected override void Dispose(bool disposing)
@@ -132,29 +207,10 @@ namespace NESgard.WinForms
             base.Dispose(disposing);
         }
 
-        protected void LoadRom(object sender, EventArgs e)
+        protected void OpenRom(object sender, EventArgs e)
         {
-            if (ppuNameTableViewer != null)
-            {
-                ppuNameTableViewer.Dispose();
-                ppuNameTableViewer = null;
-            }
-
-            if (cpuTask != null)
-            {
-                pause = false;
-                exitCpu = true;
-                cpuTask.Wait();
-                cpuTask = null;
-                exitCpu = false;
-            }
-
-            if (cpu != null)
-            {
-                waveOut.Stop();
-                cpu.Dispose();
-                cpu = null;
-            }
+            pause = true;
+            Invalidate();
 
             string file;
             using (var dialog = new OpenFileDialog())
@@ -168,11 +224,53 @@ namespace NESgard.WinForms
                 file = dialog.FileName;
             }
 
+            LoadRom(file);
+        }
+
+        protected void OpenRecent(object sender, EventArgs e)
+        {
+            var item = sender as ToolStripMenuItem;
+            var file = item.Name;
+
+            LoadRom(file);
+        }
+
+        protected void LoadRom(string file)
+        {
+            if (ppuNameTableViewer != null)
+            {
+                ppuNameTableViewer.Dispose();
+                ppuNameTableViewer = null;
+            }
+
+            if (cpuTask != null)
+            {
+                pause = false;
+                exitCpu = true;
+                cpuTask.Wait();
+                cpuTask = null;
+            }
+            pause = true;
+            exitCpu = false;
+
+            if (cpu != null)
+            {
+                waveOut.Stop();
+                cpu.Dispose();
+                cpu = null;
+            }
+
             try
             {
                 var rom = new Cartridge(file);
                 cpu = new Cpu(rom);
                 cpu.Reset(false);
+
+                while (settings.recentFiles.Remove(file)) { }
+                settings.recentFiles.Insert(0, file);
+                if (settings.recentFiles.Count > 10)
+                    settings.recentFiles = settings.recentFiles.Take(10).ToList();
+                SaveSettings();
             }
             catch (Exception ex)
             {
@@ -180,6 +278,8 @@ namespace NESgard.WinForms
                 MessageBox.Show(ex.Message, "Could not load NES rom", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
+
+            pause = false;
 
             if (showPpuNameTableViewer)
             {
@@ -259,6 +359,12 @@ namespace NESgard.WinForms
             Focus();
         }
 
+        protected void Reset(object sender, EventArgs e)
+        {
+            if (cpu != null)
+                cpu.Reset(false);
+        }
+
         protected void Exit(object sender, EventArgs e)
         {
             Close();
@@ -289,8 +395,43 @@ namespace NESgard.WinForms
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            if (cpu != null)
+            if (pause)
             {
+                if (pauseBitmap == null)
+                {
+                    pauseBitmap = new Bitmap(image.Width, image.Height);
+                    using (var g = Graphics.FromImage(pauseBitmap))
+                    {
+                        var rect = new Rectangle(0, 0, pauseBitmap.Width, pauseBitmap.Height);
+                        g.DrawImage(bitmap, rect);
+                        using (var bgBrush = new SolidBrush(Color.FromArgb(128, Color.DarkSlateGray)))
+                            g.FillRectangle(bgBrush, rect);
+
+                        using (var font = new Font(DefaultFont.FontFamily, 16.0f))
+                        using (var whiteBrush = new SolidBrush(Color.White))
+                        {
+                            var paused = "PAUSED";
+                            var ms = g.MeasureString(paused, font);
+                            var x = rect.Width / 2 - ms.Width / 2;
+                            var y = rect.Height / 2 - ms.Height / 2;
+
+                            using (var bgBrush = new SolidBrush(Color.FromArgb(128, Color.Black)))
+                                g.FillRectangle(bgBrush, new RectangleF(0, y - 3, rect.Width, ms.Height + 6));
+
+                            g.DrawString(paused, font, whiteBrush, x, y);
+                        }
+                    }
+                    image.Image = pauseBitmap;
+                }
+            }
+            else if (cpu != null)
+            {
+                if (pauseBitmap != null)
+                {
+                    pauseBitmap.Dispose();
+                    pauseBitmap = null;
+                }
+
                 cpu.bus.ppu.GetImage(bitmap);
                 image.Image = bitmap;
             }
@@ -330,7 +471,10 @@ namespace NESgard.WinForms
                 cpu.bus.controller1.Update(ControllerButton.RIGHT, true);
 
             if (e.KeyCode == Keys.Escape)
+            {
                 pause = !pause;
+                Invalidate();
+            }
         }
 
         protected void HandleKeyUp(object sender, KeyEventArgs e)

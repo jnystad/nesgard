@@ -31,7 +31,7 @@ namespace NESgard.WinForms
             ppu = new PictureBox();
             ppu.Dock = DockStyle.Fill;
             ppu.SizeMode = PictureBoxSizeMode.Zoom;
-            ppu.BackColor = Color.Black;
+            ppu.BackColor = Color.Gray;
 
             ppuImage = new Bitmap(512, 480, PixelFormat.Format32bppArgb);
 

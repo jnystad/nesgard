@@ -54,12 +54,6 @@ namespace NESgard.Emulator
 
             vram = new byte[0x4000];
             oamData = new byte[256];
-
-            buffer = new[]
-            {
-                new int[256 * 240],
-                new int[256 * 240],
-            };
         }
 
         public void GetImage(Bitmap img)
@@ -81,6 +75,12 @@ namespace NESgard.Emulator
             mask = 0;
             openBus = 0;
             writeLatch = false;
+
+            buffer = new[]
+            {
+                new int[256 * 240],
+                new int[256 * 240],
+            };
         }
 
         public PpuResult Tick()
