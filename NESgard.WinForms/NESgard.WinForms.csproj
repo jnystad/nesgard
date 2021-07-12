@@ -13,6 +13,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net5.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>NESgard</AssemblyName>
   </PropertyGroup>
 
 </Project>
