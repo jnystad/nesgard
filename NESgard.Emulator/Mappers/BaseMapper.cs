@@ -34,7 +34,7 @@ namespace NESgard.Emulator
         public virtual void ChrWrite(ushort addr, byte data)
         {
             if (!isChrRam)
-                throw new Exception("Attempted to write to CHR ROM");
+                throw new Exception(string.Format("Attempted to write to CHR ROM: {0:X4}", addr));
             chrRom[addr] = data;
         }
 
@@ -45,7 +45,7 @@ namespace NESgard.Emulator
 
         public virtual void PrgWrite(ushort addr, byte data)
         {
-            throw new Exception("Attempted to write PRG ROM");
+            throw new Exception(string.Format("Attempted to write PRG ROM: {0:X4}", addr));
         }
 
         public virtual void PpuRise() { }

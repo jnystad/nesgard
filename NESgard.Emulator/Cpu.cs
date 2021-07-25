@@ -110,7 +110,7 @@ namespace NESgard.Emulator
                     registers.status |= CpuStatus.InterruptDisable;
                 }
 
-                if (bus.HasInterrupt() && !registers.status.HasFlag(CpuStatus.InterruptDisable))
+                if (bus.HasInterrupt() && (registers.status & CpuStatus.InterruptDisable) == 0)
                 {
                     PushWord(registers.pc);
                     Push((byte)registers.status);
@@ -628,7 +628,7 @@ namespace NESgard.Emulator
 
         bool GetFlag(CpuStatus flag)
         {
-            return registers.status.HasFlag(flag);
+            return (registers.status & flag) != 0;
         }
 
         void SetFlag(CpuStatus flag, bool value)
@@ -647,7 +647,7 @@ namespace NESgard.Emulator
 
         byte Carry()
         {
-            return registers.status.HasFlag(CpuStatus.Carry) ? (byte)1 : (byte)0;
+            return (registers.status & CpuStatus.Carry) != 0 ? (byte)1 : (byte)0;
         }
 
         byte ReadOperand(Mode mode)
@@ -1174,7 +1174,7 @@ namespace NESgard.Emulator
                 case 0x2006: return 0;
                 case 0x4014: return 0;
 
-                case ushort n when (n >= 0x8000):
+                case ushort n when (n >= 0x4020):
                     return bus.mapper.PrgRead(addr);
 
                 default: return 0;

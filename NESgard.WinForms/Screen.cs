@@ -344,7 +344,7 @@ namespace NESgard.WinForms
                             Console.WriteLine("FPS: {0}", fps);
                         }
 
-                        while (watch.Elapsed.TotalMilliseconds < 16.5)
+                        while (watch.Elapsed.TotalMilliseconds < 16.6)
                             Thread.Sleep(0);
                     }
                 }
